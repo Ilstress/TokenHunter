@@ -1,0 +1,171 @@
+# DEV_LOG.md — TokenHunter 开发日志
+
+---
+
+## Task 1.1：初始化 Spring Boot 项目
+日期：2026-09-11
+
+修改文件：
+- `backend/pom.xml` — Maven 项目配置，Spring Boot 3.4.4 + MyBatis-Plus 3.5.9 + Lombok 1.18.38
+- `backend/src/main/java/com/tokenhunter/TokenHunterApplication.java` — Spring Boot 启动类
+- `backend/src/main/resources/application.yml` — 最小配置，仅 spring.application.name=tokenhunter
+
+核心逻辑：
+通过 Spring Boot 3.4.4 的 spring-boot-starter-parent 作为父 POM，引入 Spring Web、MySQL 驱动、MyBatis-Plus（使用 spring-boot3-starter 版本）、Lombok 和 Spring Boot Test。启动类 TokenHunterApplication 标注 @SpringBootApplication，包含 main 方法调用 SpringApplication.run()。配置文件 application.yml 仅设置应用名称，不配置任何数据源。
+
+测试方法：
+运行 `mvn -q -DskipTests compile`，编译通过无报错。
+
+需要理解的知识点：
+- Spring Boot 3.x 对 Java 21 的要求
+- MyBatis-Plus 的 mybatis-plus-spring-boot3-starter 与旧版 mybatis-plus-boot-starter 的区别
+- Lombok 1.18.38 对 Java 21 的兼容性
+- Maven 编译器插件的 annotationProcessorPaths 配置
+
+---
+
+## Task 1.2：配置 MySQL 数据源
+日期：2026-09-11
+
+修改文件：
+- `backend/src/main/resources/application.yml` — 增加 spring.profiles.active=local
+- `backend/src/main/resources/application-local.example.yml` — MySQL 数据源示例配置
+
+核心逻辑：
+在 application.yml 中通过 spring.profiles.active=local 激活 local profile。创建 application-local.example.yml 作为示例配置模板，其中数据库用户名使用环境变量 DB_USERNAME（默认 root），密码使用 DB_PASSWORD 环境变量（默认空），避免将真实凭据写入版本控制。连接 URL 指定了时区为 Asia/Shanghai、禁用 SSL、允许获取公钥等参数。
+
+测试方法：
+运行 `mvn -q -DskipTests compile`，编译通过无报错。
+
+需要理解的知识点：
+- Spring Boot Profile 机制（application.yml + application-{profile}.yml）
+- 环境变量注入（${ENV_VAR:default} 语法）
+- JDBC 连接字符串参数（useUnicode、characterEncoding、serverTimezone、useSSL、allowPublicKeyRetrieval）
+
+---
+
+## Task 1.3：编写 /ping 接口验证启动
+日期：2026-09-11
+
+修改文件：
+- `backend/src/main/java/com/tokenhunter/controller/PingController.java` — 新建，@RestController + @GetMapping("/ping")
+
+核心逻辑：
+创建一个最简单的 Controller，标注 @RestController（等价于 @Controller + @ResponseBody），定义一个方法用 @GetMapping("/ping") 映射 GET /ping 请求，直接返回字符串 "TokenHunter is running"。Spring MVC 会自动将字符串写入 HTTP 响应体，Content-Type 为 text/plain。
+
+测试方法：
+1. 运行 `mvn -q -DskipTests compile`，编译通过无报错。
+2. 运行 `mvn spring-boot:run` 启动应用，日志显示 "Started TokenHunterApplication in 0.679 seconds"，端口 8080 正常。
+3. 运行 `curl -i http://localhost:8080/ping`，返回 HTTP/1.1 200，响应体为 "TokenHunter is running"。
+4. 验证完成后停止应用。
+
+需要理解的知识点：
+- @RestController 与 @Controller + @ResponseBody 的关系
+- @GetMapping 的作用（HTTP GET 方法映射）
+- Spring MVC 返回字符串时的 Content-Type 自动设置为 text/plain
+- Spring Boot 自动配置 Tomcat 嵌入式 Web 服务器
+
+---
+
+## Task 1.4：执行建表 SQL
+日期：2026-09-11
+
+修改文件：
+- `backend/src/main/resources/db/schema.sql` — 新建，usage_record 建表语句
+
+核心逻辑：
+根据 PLAN.md 第 6 节的建表语句，创建 usage_record 表，包含 id（主键自增）、provider、model、input_tokens、output_tokens、total_tokens、duration_ms、status、created_at 共 9 个字段。创建两个索引：idx_created_at（按 created_at 单列）和 idx_provider_model（按 provider + model 复合索引）。表引擎为 InnoDB，字符集 utf8mb4。先创建 tokenhunter 数据库，再执行建表 SQL。
+
+测试方法：
+1. 运行 `mysql -u root tokenhunter < backend/src/main/resources/db/schema.sql`，无错误输出。
+2. 运行 `mysql -u root tokenhunter -e "SHOW TABLES;"`，输出 `usage_record`。
+3. 运行 `mysql -u root tokenhunter -e "DESC usage_record;"`，9 个字段与 PLAN.md 完全一致。
+4. 运行 `mysql -u root tokenhunter -e "SHOW INDEX FROM usage_record;"`，确认包含 PRIMARY、idx_created_at、idx_provider_model（provider + model 两列）三个索引。
+
+需要理解的知识点：
+- MySQL 建表语法：数据类型（BIGINT UNSIGNED、VARCHAR、INT UNSIGNED、TINYINT、DATETIME）、约束（NOT NULL、DEFAULT、AUTO_INCREMENT、PRIMARY KEY）
+- MySQL 索引类型：BTREE 索引、单列索引 vs 复合索引
+- ENGINE=InnoDB 和 CHARSET=utf8mb4 的含义
+- MySQL 客户端命令行执行 SQL 文件的方式（`<` 重定向）
+
+---
+
+## Task 1.5：编写 UsageRecord 实体类
+日期：2026-09-11
+
+修改文件：
+- `backend/src/main/java/com/tokenhunter/entity/UsageRecord.java` — 新建，MyBatis-Plus 实体类
+
+核心逻辑：
+创建 UsageRecord 实体类，包名 com.tokenhunter.entity。使用 Lombok @Data 自动生成 getter/setter/toString/equals/hashCode。标注 @TableName("usage_record") 映射到 usage_record 表。9 个字段与数据库表严格一一对应：id（@TableId(type = IdType.AUTO)）、provider、model、inputTokens（对应 input_tokens）、outputTokens（对应 output_tokens）、totalTokens（对应 total_tokens）、durationMs（对应 duration_ms）、status、createdAt（对应 created_at）。全部使用包装类型（Long/Integer/String/LocalDateTime），MyBatis-Plus 驼峰转下划线自动映射，未加多余 @TableField。未给 createdAt 设 Java 侧默认值，让数据库 CURRENT_TIMESTAMP 生效。未创建 Mapper、Service、Controller。
+
+测试方法：
+1. 运行 `mvn -q -DskipTests compile`，编译通过无报错。
+2. 运行 `mvn spring-boot:run`，日志显示 "Started TokenHunterApplication in 0.733 seconds"，端口 8080 正常，Tomcat 启动成功，数据库连接正常。
+3. 运行 `curl -s http://localhost:8080/ping`，返回 "TokenHunter is running"。
+4. 验证完成后停止应用。
+
+需要理解的知识点：
+- MyBatis-Plus @TableName 和 @TableId 的作用
+- 驼峰转下划线自动映射规则（camelToUnderscore）
+- 包装类型 vs 基本类型的选择（null 语义 vs 默认值）
+- Lombok @Data 的组成（@Getter + @Setter + @ToString + @EqualsAndHashCode + @RequiredArgsConstructor）
+- 数据库 DEFAULT CURRENT_TIMESTAMP 与 Java 侧默认值的区别
+
+字段对照表：
+| 数据库字段       | 数据库类型         | Java 字段      | Java 类型  | 映射方式          |
+|------------------|--------------------|----------------|------------|-------------------|
+| id               | BIGINT UNSIGNED    | id             | Long       | @TableId(AUTO)    |
+| provider         | VARCHAR(32)        | provider       | String     | 驼峰转下划线      |
+| model            | VARCHAR(64)        | model          | String     | 驼峰转下划线      |
+| input_tokens     | INT UNSIGNED       | inputTokens    | Integer    | 驼峰转下划线      |
+| output_tokens    | INT UNSIGNED       | outputTokens   | Integer    | 驼峰转下划线      |
+| total_tokens     | INT UNSIGNED       | totalTokens    | Integer    | 驼峰转下划线      |
+| duration_ms      | INT UNSIGNED       | durationMs     | Integer    | 驼峰转下划线      |
+| status           | TINYINT            | status         | Integer    | 驼峰转下划线      |
+| created_at       | DATETIME           | createdAt      | LocalDateTime | 驼峰转下划线   |
+
+---
+
+## Task 1.6：编写 UsageRecordMapper
+日期：2026-09-11
+
+修改文件：
+- `backend/src/main/java/com/tokenhunter/mapper/UsageRecordMapper.java` — 新建，继承 `BaseMapper<UsageRecord>`
+
+核心逻辑：
+创建 UsageRecordMapper 接口，包名 com.tokenhunter.mapper。继承 MyBatis-Plus 的 `BaseMapper<UsageRecord>`，不写任何自定义方法（方法体为空）。接口上加 `@Mapper` 注解，让 MyBatis 在编译时生成该 Mapper 的代理实现类。BaseMapper 已提供 insert、selectList、selectById、updateById 等常用 CRUD 方法，后续需要自定义 SQL 时再在此接口中追加方法。
+
+测试方法：
+1. 运行 `mvn -q -DskipTests compile`，编译通过无报错。
+2. 运行 `mvn spring-boot:run`，日志显示 "Started TokenHunterApplication in 0.858 seconds"，端口 8080 正常。
+3. 启动日志中不再出现 "No MyBatis mapper was found" 警告，说明 Mapper 被正确扫描。
+4. 验证完成后停止应用。
+
+需要理解的知识点：
+- MyBatis-Plus `BaseMapper<T>` 提供的开箱即用的 CRUD 方法（insert、selectList、selectById、updateById、deleteById 等）
+- `@Mapper` 注解的作用（标记接口为 MyBatis Mapper，编译时生成代理实现）
+- `@Mapper` vs `@MapperScan` 的区别：`@Mapper` 标注每个 Mapper 接口，`@MapperScan` 批量扫描指定包下的接口，多 Mapper 场景推荐 `@MapperScan`
+- MyBatis-Plus 通过代理机制将 BaseMapper 方法自动映射为 SQL 操作
+
+---
+
+## Task 1.7：编写 UsageRecordService
+日期：2026-09-11
+
+修改文件：
+- `backend/src/main/java/com/tokenhunter/service/UsageRecordService.java` — 新建，Service 层封装
+
+核心逻辑：
+创建 UsageRecordService 类，包名 com.tokenhunter.service，类上加 @Service 让 Spring 自动注册为 Bean。通过构造器注入 UsageRecordMapper（Spring 4.3+ 支持单构造器自动注入，无需 @Autowired），避免字段注入导致的隐式依赖和测试困难。提供两个方法：1) save(UsageRecord record) — 调用 mapper.insert(record)，利用 MyBatis-Plus BaseMapper 的 insert 方法自动将对象字段映射为 INSERT 语句，驼峰转下划线自动处理；2) listAll() — 调用 mapper.selectList(null)，null 表示无查询条件，返回全表记录。不写 page()、deleteById()、update() 等方法，不添加 @Transactional 注解，因为 Phase 1 只需要最基础的 CRUD 封装。Service 层的作用是将 Mapper 的底层 CRUD 操作向上屏蔽，Controller 只依赖 Service 而不直接操作 Mapper，后续新增业务逻辑时只需修改 Service 而不需要改动 Controller。
+
+测试方法：
+1. 运行 `mvn -q -DskipTests compile`，编译通过无报错。
+
+需要理解的知识点：
+- @Service 注解的作用（标注业务逻辑层 Bean，属于 @Component 的特化）
+- 构造器注入 vs @Autowired 字段注入的区别（显式依赖、不可变、易测试）
+- Service 层的作用（为什么不在 Controller 里直接调 Mapper）
+- MyBatis-Plus BaseMapper.insert 的自动映射机制
+- selectList(null) 中 null 参数的含义（无查询条件，返回全表）
+

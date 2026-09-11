@@ -1,0 +1,55 @@
+# ===== 本地配置与密钥（必须忽略）=====
+application-local.yml
+**/application-local.yml
+*.env
+.env
+.env.local
+
+# ===== 日志与临时文件 =====
+*.log
+logs/
+tmp/
+*.tmp
+
+# ===== Java / Maven =====
+target/
+**/target/
+*.class
+*.jar
+*.war
+!**/src/main/**/target/
+!.mvn/wrapper/maven-wrapper.jar
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.properties
+
+# ===== Node / Vite / 前端 =====
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.vite/
+**/.vite/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# ===== IDE =====
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.swp
+*.swo
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+# ===== 数据库 dump / 本地数据 =====
+*.sql.gz
+*.dump
+mysql-dump/
