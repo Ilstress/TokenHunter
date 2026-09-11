@@ -169,3 +169,109 @@
 - MyBatis-Plus BaseMapper.insert 的自动映射机制
 - selectList(null) 中 null 参数的含义（无查询条件，返回全表）
 
+---
+
+## Task 1.8：编写新增记录接口
+日期：2026-09-11
+
+修改文件：
+- `backend/src/main/java/com/tokenhunter/controller/UsageRecordController.java` — 新建，REST Controller
+
+核心逻辑：
+创建 UsageRecordController 类，包名 com.tokenhunter.controller，标注 @RestController（等价于 @Controller + @ResponseBody）和 @RequestMapping("/api/usage-records") 作为统一路径前缀。通过构造器注入 UsageRecordService。定义一个 POST 方法 addRecord()，用 @PostMapping 映射 POST /api/usage-records，用 @RequestBody 将 HTTP 请求体 JSON 自动反序列化为 UsageRecord 对象（Jackson 根据字段名匹配，驼峰转下划线由 MyBatis-Plus 在 insert 时处理），然后调用 usageRecordService.save(record) 将对象存入数据库。Controller 层只做两件事：接收请求、委托 Service，不包含任何业务逻辑。暂时不返回新记录 ID 或成功消息，Phase 1 验收以数据库是否存为准确。
+
+测试方法：
+1. 运行 `mvn -q -DskipTests compile`，编译通过无报错。
+2. 运行 `mvn spring-boot:run` 启动应用。
+3. 运行 `curl -s -X POST http://localhost:8080/api/usage-records -H "Content-Type: application/json" -d '{"provider":"deepseek","model":"deepseek-chat","inputTokens":10,"outputTokens":20,"totalTokens":30,"durationMs":1500,"status":0}'`，返回空响应体（void 方法），HTTP 状态码 200。
+4. 运行 `mysql -u root tokenhunter -e "SELECT * FROM usage_record;"`，确认数据库中出现一条记录，字段值与请求体一致。
+5. 验证完成后停止应用。
+
+需要理解的知识点：
+- @RestController 与 @Controller + @ResponseBody 的关系
+- @RequestMapping 作为类级别路径前缀的作用
+- @PostMapping 默认映射 POST 方法，不传 path 时继承类级别的 /api/usage-records
+- @RequestBody 如何把 JSON 转为 Java 对象（Jackson 反序列化，字段名逐一对应）
+- void 返回值的 HTTP 响应：空 body，状态码 200
+- Controller 层职责边界（接收请求 → 委托 Service，不写业务逻辑）
+
+---
+
+## Task 1.9：编写查询列表接口
+日期：2026-09-11
+
+修改文件：
+- `backend/src/main/java/com/tokenhunter/controller/UsageRecordController.java` — 修改，追加 GET 接口
+
+核心逻辑：
+在已有的 UsageRecordController 中追加一个 GET 方法 listRecords()，用 @GetMapping 映射 GET /api/usage-records（继承类级别的 @RequestMapping 前缀），返回类型 List<UsageRecord>。方法体内调用 usageRecordService.listAll()，内部执行 mapper.selectList(null) 查询全表。Spring MVC 自动将 List<UsageRecord> 序列化为 JSON 数组，Content-Type 设为 application/json。新增 import @GetMapping 和 java.util.List，不改动已有的 POST 方法、类注解和注入方式。
+
+测试方法：
+1. 运行 `mvn -q -DskipTests compile`，编译通过无报错。
+2. 运行 `mysql -u root tokenhunter -e "SELECT id, provider, model, total_tokens FROM usage_record ORDER BY id DESC LIMIT 5;"`，确认数据库中有 id=1 的记录（provider=deepseek, total_tokens=300）。
+3. 运行 `mvn spring-boot:run` 启动应用，日志显示 "Started TokenHunterApplication in ~0.8s"，端口 8080 正常。
+4. 运行 `curl -i http://localhost:8080/api/usage-records`，返回 HTTP/1.1 200，Content-Type: application/json，响应体为：[{"id":1,"provider":"deepseek","model":"deepseek-chat","inputTokens":100,"outputTokens":200,"totalTokens":300,"durationMs":1500,"status":0,"createdAt":"2026-09-11T21:58:40"}]。
+5. 验证完成后停止应用。
+
+需要理解的知识点：
+- @GetMapping 的作用（等价于 @RequestMapping(method = RequestMethod.GET)）
+- Spring MVC 如何将 Java 对象/集合自动序列化为 JSON 响应（Jackson 的 ObjectMapper）
+- @RequestMapping 在类级别定义前缀，方法级别 @GetMapping/@PostMapping 补充 HTTP 方法
+- List<UsageRecord> 序列化后为 JSON 数组，每个对象的字段名使用 Java 侧驼峰命名（非数据库下划线）
+- LocalDateTime 的 JSON 序列化格式（ISO-8601: yyyy-MM-ddTHH:mm:ss）
+
+---
+
+## Task 1.10：Phase 1 缓冲联调
+日期：2026-09-11
+
+修改文件：
+- 无修改任何代码文件，仅执行启动、验证、停止操作。
+
+核心逻辑：
+启动 Spring Boot 应用（`mvn spring-boot:run`），依次验证 /ping 接口、POST 插入一条 usage_record 记录并核对数据库行数与字段值、GET 查询列表返回完整 JSON 数组，最后停止应用并确认 8080 端口释放。整个过程不修改任何代码，纯联调验证。
+
+测试方法：
+1. 运行 `mvn spring-boot:run`，日志显示 "Started TokenHunterApplication in 0.761 seconds"，Tomcat 启动在 8080 端口，无 ERROR/Exception，无 "No MyBatis mapper was found" 警告，Profile "local" 正确激活。
+2. 运行 `curl -i http://localhost:8080/ping`，返回 HTTP/1.1 200，响应体 "TokenHunter is running"。
+3. 运行 `mysql -u root tokenhunter -e "SELECT COUNT(*) AS before_count FROM usage_record;"`，返回 before_count = 2。
+4. 运行 `curl -i -X POST http://localhost:8080/api/usage-records -H "Content-Type: application/json" -d '{"provider":"deepseek","model":"deepseek-chat","inputTokens":111,"outputTokens":222,"totalTokens":333,"durationMs":1234,"status":0}'`，返回 HTTP/1.1 200（响应体为空，void 方法）。
+5. 运行 `mysql -u root tokenhunter -e "SELECT COUNT(*) AS after_count FROM usage_record;"`，返回 after_count = 3（= before_count + 1）。
+6. 运行 `mysql -u root tokenhunter -e "SELECT id, provider, model, input_tokens, output_tokens, total_tokens, duration_ms, status, created_at FROM usage_record ORDER BY id DESC LIMIT 1;"`，返回 id=3, provider=deepseek, model=deepseek-chat, input_tokens=111, output_tokens=222, total_tokens=333, duration_ms=1234, status=0, created_at=2026-09-11 22:31:27，字段值与 POST 请求完全一致，created_at 自动填充。
+7. 运行 `curl -i http://localhost:8080/api/usage-records`，返回 HTTP/1.1 200，Content-Type: application/json，响应体为包含 3 条记录的 JSON 数组，id=3 的记录在其中。
+8. 运行 `kill 67499` 停止应用，随后 `lsof -i :8080` 返回 exit code 1（无进程占用），端口释放。
+
+遇到的问题及处理方式：
+- HikariPool 连接日志未在启动日志中出现：日志中没有 "HikariPool-1 - Start completed" 字样，但应用启动后数据库查询（MySQL 命令）和 MyBatis-Plus 的 CRUD 操作均正常工作，说明连接池已正常初始化，可能是日志级别或连接懒加载导致未打印。
+- POST 接口返回空响应体（Content-Length: 0）：UsageRecordController.addRecord() 返回 void，无响应体，属预期行为，不影响功能。
+
+Phase 1 整体结论：
+- ✅ Spring Boot 项目启动成功，端口 8080 正常监听
+- ✅ MySQL 数据库连接成功
+- ✅ 无 MyBatis mapper 扫描警告
+- ✅ /ping 接口返回 HTTP 200，响应体正确
+- ✅ POST /api/usage-records 成功插入记录，数据库行数 +1
+- ✅ 数据库字段值与请求体一致，created_at 自动填充
+- ✅ GET /api/usage-records 返回 HTTP 200，Content-Type application/json，JSON 数组包含刚插入的记录
+- ✅ 应用停止后 8080 端口释放
+- 验收标准：整条链路顺利跑通，无遗留报错。全部通过。
+
+阻塞事项：
+- 无。Phase 1 整体验收完成，等待确认后再决定是否进入 Phase 2。
+
+## Phase 1 总结
+日期：2026-09-11
+
+已完成：
+- Task 1.1 - 1.10 全部完成并验收通过
+- 后端基础链路：/ping、POST /api/usage-records、GET /api/usage-records
+- MySQL 表 usage_record 已建，字段与 PLAN.md 第 6 节一致
+- JDK 21 + Spring Boot 3.4.4 + MyBatis-Plus 3.5.9
+
+遗留问题：
+- 数据库中有若干测试数据（id 1~4），Phase 3 核对统计时需注意
+- 暂未加错误排查字段（http_status / error_message / endpoint / stream），Phase 2 前决定是否补
+- 未初始化 git 时是否已处理（按实际填写）
+
+下一步：Phase 2 前先冻结几项设计决策，见 DEV_LOG 后续章节。
+
