@@ -270,8 +270,8 @@ Phase 1 整体结论：
 
 遗留问题：
 - 数据库中有若干测试数据（id 1~4），Phase 3 核对统计时需注意
-- 暂未加错误排查字段（http_status / error_message / endpoint / stream），Phase 2 前决定是否补
-- 未初始化 git 时是否已处理（按实际填写）
+- PLAN.md 第 6 节建表 SQL 未同步新增字段，与 schema.sql 存在不一致，待后续统一
+- 已新增错误排查字段（http_status / error_message / endpoint / stream），见"错误字段补丁"章节
 
 下一步：Phase 2 前先冻结几项设计决策，见 DEV_LOG 后续章节。
 
@@ -299,4 +299,43 @@ Phase 1 整体结论：
 
 阻塞事项：
 - 无。Task 2.1 已完成，等待确认后再进入 Task 2.2。
+
+---
+
+## 错误字段补丁
+日期：2026-09-12
+
+修改文件：
+- `backend/src/main/resources/db/schema.sql` — 修改，在 status 和 created_at 之间新增 4 个字段
+- `backend/src/main/java/com/tokenhunter/entity/UsageRecord.java` — 修改，在 status 和 createdAt 之间新增 4 个字段
+- `docs/PHASES.md` — 修改，Task 2.9 和 Task 2.10 正文补充新字段写入规则
+
+核心逻辑：
+为 usage_record 表新增 4 个排查失败请求的字段：http_status（上游 HTTP 状态码）、error_message（错误摘要，VARCHAR(512)）、endpoint（上游路径）、stream（0=非流式/1=流式）。改动分三步：1) schema.sql 建表 SQL 同步新增 4 个字段定义；2) 通过 ALTER TABLE 对已存在数据库执行 ADD COLUMN，按 status → http_status → error_message → endpoint → stream → created_at 顺序排列；3) Java 实体类 UsageRecord.java 在 status 和 createdAt 之间新增对应 4 个字段（Integer/String 类型），保持 @Data 和 @TableName 不变，利用 MyBatis-Plus 驼峰转下划线自动映射，不加多余 @TableField。4) PHASES.md Task 2.9 补充"失败记录写入 http_status、error_message（截断 512 字符）、endpoint、stream=0"，Task 2.10 补充"超时/连接异常 http_status 为 NULL、error_message 写异常类型"。PLAN.md 第 6 节建表 SQL 未同步修改，避免与 schema.sql 重复维护，后续统一处理。
+
+测试方法：
+1. 运行 `mysql -u root tokenhunter -e "SELECT COUNT(*) FROM usage_record;"`，返回 4 条，MySQL 连接正常。
+2. 执行 ALTER TABLE 添加 4 个字段，无错误输出。
+3. 运行 `mysql -u root tokenhunter -e "DESC usage_record;"`，确认 http_status、error_message、endpoint、stream 四个新字段已存在，类型和位置正确。
+4. 运行 `mvn -q -DskipTests compile`，编译通过无报错。
+5. 运行 `mvn spring-boot:run` 启动应用，日志显示 "Tomcat started on port 8080 (http) with context path '/'" 和 "Started TokenHunterApplication in 0.791 seconds"。
+6. 运行 `curl -s http://localhost:8080/api/usage-records`，返回 JSON 数组，每条记录包含 httpStatus（null）、errorMessage（null）、endpoint（null）、stream（0）四个新字段。
+7. 运行 kill 停止应用，确认 8080 端口释放。
+
+需要理解的知识点：
+- MySQL ALTER TABLE ADD COLUMN AFTER 的语法，字段在表中的物理排列顺序
+- MyBatis-Plus 驼峰转下划线映射（httpStatus → http_status）对新增字段的自动处理
+- JSON 序列化中包装类型 Integer 为 null 时输出 JSON null 而非缺失字段
+- schema.sql 与 ALTER TABLE 的区别：schema.sql 是新库建表模板，ALTER TABLE 是对已有库的增量变更
+- PLAN.md 第 6 节建表 SQL 未同步新增字段，后续需在合适时机统一更新
+
+回退 SQL（如需恢复）：
+```sql
+ALTER TABLE usage_record DROP COLUMN http_status, DROP COLUMN error_message, DROP COLUMN endpoint, DROP COLUMN stream;
+```
+
+阻塞事项：
+- PLAN.md 第 6 节建表 SQL 未同步新增 4 个字段，与 schema.sql 存在文档不一致，待后续统一。
+
+错误字段补丁完成，等待你确认后再进入 Task 2.1。
 

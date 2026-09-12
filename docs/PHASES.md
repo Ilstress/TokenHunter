@@ -122,13 +122,13 @@
 - 验收标准：多次测试均无异常，token 数与手动直接调用 DeepSeek API 得到的数字一致。
 
 ### Task 2.9 处理 DeepSeek 错误响应
-- 当 DeepSeek 返回 4xx/5xx 状态码时，捕获这个情况，仍然要把错误信息返回给客户端，同时存一条 `status=1` 的记录（token 数记 0）。
+- 当 DeepSeek 返回 4xx/5xx 状态码时，捕获这个情况，仍然要把错误信息返回给客户端，同时存一条 `status=1` 的记录（token 数记 0）。失败记录除了 status=1，还要写入 http_status（上游返回码）、error_message（错误摘要，截断到 512 字符以内）、endpoint（上游路径）、stream=0。
 - 涉及文件：`service/proxy/DeepSeekProxyService.java`
 - 验收标准：故意发一个错误请求（比如错误的 API Key），确认返回了错误信息且数据库记录了这次失败。
 - 知识点：HTTP 状态码分类（2xx/4xx/5xx 分别代表什么）
 
 ### Task 2.10 处理网络超时/连接异常
-- 设置合理的超时时间，捕获超时或连接失败异常，同样存一条 `status=1` 的记录，不能让程序直接崩溃。
+- 设置合理的超时时间，捕获超时或连接失败异常，同样存一条 `status=1` 的记录，不能让程序直接崩溃。超时/连接异常同样写 status=1，http_status 为 NULL，error_message 写明异常类型（如 SocketTimeoutException / ConnectException），endpoint 和 stream 照常写。
 - 涉及文件：`service/proxy/DeepSeekProxyService.java`
 - 验收标准：可以通过临时改错 base-url 或断网模拟异常，确认程序能优雅处理不崩溃。
 - 知识点：Java 异常处理（try-catch）、超时的概念

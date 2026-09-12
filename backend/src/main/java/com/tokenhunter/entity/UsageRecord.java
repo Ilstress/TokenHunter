@@ -28,5 +28,13 @@ public class UsageRecord {
 
     private Integer status;
 
+    private Integer httpStatus;
+
+    private String errorMessage;
+
+    private String endpoint;
+
+    private Integer stream;
+
     private LocalDateTime createdAt;
 }

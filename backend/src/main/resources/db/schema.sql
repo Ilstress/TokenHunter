@@ -7,6 +7,10 @@ CREATE TABLE usage_record (
     total_tokens    INT UNSIGNED DEFAULT 0,
     duration_ms     INT UNSIGNED DEFAULT 0,
     status          TINYINT      NOT NULL DEFAULT 0,
+    http_status     INT NULL,                    -- 上游返回的 HTTP 状态码，成功路径也记录
+    error_message   VARCHAR(512) NULL,           -- 失败时的错误摘要，成功时为 NULL
+    endpoint        VARCHAR(128) NULL,           -- 请求的上游路径，如 /v1/chat/completions
+    stream          TINYINT NOT NULL DEFAULT 0,  -- 0=非流式 1=流式
     created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     KEY idx_created_at (created_at),
