@@ -24,7 +24,7 @@
 | 层 | 技术 |
 |---|---|
 | Frontend | Vue 3 + TypeScript + Vite + Element Plus + ECharts |
-| Backend | Spring Boot 3 + MyBatis-Plus |
+| Backend | Spring Boot 3 + Java 21 + MyBatis-Plus |
 | Database | MySQL 8（单机本地运行） |
 | 部署形态 | 开发期前后端分离；最终打包为 Spring Boot 内嵌 Vue 静态资源，单进程运行 |
 
@@ -59,7 +59,7 @@ v0.1 只支持**非流式**请求的转发与统计（客户端请求体中 `str
 ### 5.1 后端（Spring Boot）
 
 ```
-backend/
+tokenhunter-backend/
 ├── src/main/java/com/tokenhunter/
 │   ├── TokenHunterApplication.java
 │   ├── config/
@@ -92,7 +92,7 @@ backend/
 ### 5.2 前端（Vue 3）
 
 ```
-frontend/
+tokenhunter-frontend/
 ├── src/
 │   ├── views/
 │   │   └── DashboardView.vue
@@ -152,11 +152,23 @@ tokenhunter:
   providers:
     deepseek:
       base-url: https://api.deepseek.com
-      api-key: sk-xxxxxx
+      api-key: ${DEEPSEEK_API_KEY:}
     lmstudio:
       base-url: http://localhost:1234
       api-key: not-needed
 ```
+
+`api-key` 不写明文，通过环境变量注入，真实值放在 `application-local.yml`。
+
+---
+
+### 6.5 统计口径与数据来源
+
+- **口径定义**：v0.1 的"Token 消耗"以 `input_tokens + output_tokens` 为基础口径，`total_tokens` 取 Provider 返回值或用两者相加校验。
+- **缓存 Token 的预留**：部分 Provider（尤其是支持 Prompt Caching 的模型）会额外返回 `cache_hit`/`cache_miss`/`cache_creation`/`cache_read` 等 token 字段。借鉴通用 API 用量统计实践，这类字段 v0.1 不采集、不建列，但后续若要支持，需要单独记录并纳入总消耗统计，避免在支持 Prompt Caching 的模型上出现统计口径偏差。
+- **v0.1 范围**：仅统计 `input_tokens`、`output_tokens`、`total_tokens` 三个字段，缓存相关口径的扩展留到后续版本（见第 12 节）。
+- **数据来源**：v0.1 只统计经过 TokenHunter Proxy 转发的请求，不扫描本地 CLI 会话文件，不导入任何历史数据。
+- **单位与时区**：所有 Token 数均为整数；时间统一按 `Asia/Shanghai` 存储与展示。
 
 ---
 
@@ -171,6 +183,11 @@ tokenhunter:
 | GET | `/api/usage-records?page=&size=` | 最近请求分页列表 |
 | POST | `/proxy/deepseek/**` | 转发到 DeepSeek，落库统计 |
 | POST | `/proxy/lmstudio/**` | 转发到 LM Studio，落库统计 |
+
+**trend 接口粒度规则**：
+- `range=7d`、`range=30d` 时按天返回一个数据点；未来若支持 `range=today`，按小时返回。
+- 某天（或某小时）没有记录时，由**后端补零**，保证返回的时间序列连续，避免前端折线图出现断点。
+- 时间字段统一使用 ISO-8601 格式，例如 `2026-09-11T21:58:40`。
 
 ---
 
@@ -206,7 +223,7 @@ tokenhunter:
 
 **目标**：为前端提供计算好的统计数据。
 
-- Day 1：写"今日 Token 总量 / 请求数 / 模型数"接口（按 `DATE(created_at)` 聚合）。
+- Day 1：写"今日 Token 总量 / 请求数 / 模型数"接口（用 `created_at >= CURDATE() AND created_at < CURDATE() + INTERVAL 1 DAY` 范围查询，避免 `DATE(created_at)` 导致索引失效）。
 - Day 2：写"最近 7/30 天趋势"接口和"按模型/Provider 聚合占比"接口。
 - Day 3（缓冲）：处理边界情况——没有任何记录时，接口要返回空数据结构而不是报错。
 
@@ -299,6 +316,7 @@ docs/
 - **v0.3**：数据导出、清空数据的前端功能。
 - **v0.4**：Provider 配置从 `application.yml` 迁移到数据库 + 管理页面。
 - **v0.5+**：接入更多 Provider（Ollama、OpenAI 等），此时再考虑做 Provider 抽象层。
+  - **模型 ID 归一化**：接入多个 Provider 后，同一模型在不同来源下可能出现不同名称（如 `deepseek-chat` 与 `deepseek-chat-v2`），需要在统计层做归一化映射，确保模型占比统计准确；v0.1 不做。
 - **打包**：评估 Tauri 封装为本地桌面应用的可行性。
 
 ---

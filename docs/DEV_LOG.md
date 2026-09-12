@@ -275,3 +275,28 @@ Phase 1 整体结论：
 
 下一步：Phase 2 前先冻结几项设计决策，见 DEV_LOG 后续章节。
 
+---
+
+## Task 2.1：添加 DeepSeek 配置
+日期：2026-09-11
+
+修改文件：
+- `backend/src/main/resources/application.yml` — 修改，增加 server.address、spring.application/profiles、tokenhunter.providers.deepseek
+- `backend/src/main/resources/application-local.example.yml` — 修改，追加 tokenhunter.providers.deepseek 占位配置
+- `backend/src/main/resources/application-local.yml` — 修改，追加 tokenhunter.providers.deepseek 真实配置（api-key 用环境变量引用）
+
+核心逻辑：
+在 application.yml 中增加 server.address=127.0.0.1 使 Tomcat 仅绑定本机回环地址，防止代理接口被局域网滥用；同时补上 spring.application.name 和 spring.profiles.active=local（之前 Task 1.3 后已存在但被 Task 1.10 联调时的版本覆盖，以当前实际文件为准）。在三个配置文件中统一添加 tokenhunter.providers.deepseek 结构：base-url 固定为 https://api.deepseek.com，api-key 在 application.yml 中用 ${DEEPSEEK_API_KEY:}（空默认值作为占位），在 application-local.example.yml 中同样用 ${DEEPSEEK_API_KEY:} 占位，在 application-local.yml 中用 ${DEEPSEEK_API_KEY} 引用环境变量，不硬编码真实 Key。
+
+测试方法：
+1. 运行 `mvn -q -DskipTests compile`，编译通过无报错。
+2. 运行 `mvn spring-boot:run`，日志显示 "The following 1 profile is active: local"，"Tomcat started on port 8080 (http)"，lsof 显示绑定在 localhost，无 ERROR。
+3. 启动后 lsof -i :8080 显示 TCP localhost:http-alt (LISTEN)，确认绑定 127.0.0.1。
+4. 验证完成后 kill 进程，lsof -i :8080 返回 exit code 1（端口释放）。
+
+遇到的问题及处理方式：
+- 无。三个配置文件一次性修改成功，编译启动均无报错。
+
+阻塞事项：
+- 无。Task 2.1 已完成，等待确认后再进入 Task 2.2。
+

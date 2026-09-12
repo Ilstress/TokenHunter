@@ -78,7 +78,7 @@
 **目标**：请求经 TokenHunter 转发给 DeepSeek，正确返回结果的同时把 usage 存入数据库。
 
 ### Task 2.1 添加 DeepSeek 配置
-- 在 `application-local.yml` 中加入 DeepSeek 的 `base-url` 和 `api-key`。
+- 在 `application.yml` 中加入 DeepSeek 的 `base-url` 结构；`api-key` 通过 `application-local.yml` 引用环境变量 `${DEEPSEEK_API_KEY}`，不写明文。
 - 涉及文件：`application-local.yml`
 - 验收标准：配置文件格式正确，无 YAML 语法错误。
 - 知识点：YAML 语法基础
@@ -144,10 +144,11 @@
 **目标**：为前端提供计算好的统计数据接口。
 
 ### Task 3.1 编写"今日概况"SQL
-- 写一条 SQL：统计当天（`DATE(created_at) = CURDATE()`）的 `total_tokens` 求和、记录数、`DISTINCT model` 数量。
+- 写一条 SQL：统计当天的 `total_tokens` 求和、记录数、`DISTINCT model` 数量，时间范围用 `created_at >= CURDATE() AND created_at < CURDATE() + INTERVAL 1 DAY`。
 - 涉及文件：`mapper/UsageRecordMapper.xml`（或用 MyBatis-Plus 的 QueryWrapper 实现）
 - 验收标准：直接在 MySQL 客户端里跑这条 SQL，结果符合预期（自己插入几条测试数据核对）。
 - 知识点：SQL 的 `SUM`、`COUNT`、`COUNT(DISTINCT ...)`、`CURDATE()`
+- 注意：`SUM` 在没有匹配数据时会返回 `NULL`，需要用 `COALESCE(SUM(total_tokens), 0)` 处理，避免接口返回 null 导致前端报错。
 
 ### Task 3.2 封装 summary 接口
 - 在 `DashboardService` 里调用 Task 3.1 的查询，组装成一个包含三个字段的返回结果；在 `DashboardController` 里暴露 GET 接口。
@@ -160,6 +161,7 @@
 - 涉及文件：`mapper/UsageRecordMapper.xml`
 - 验收标准：手动跑 SQL，能看到按日期分组的正确结果。
 - 知识点：SQL 的 `GROUP BY`、日期范围过滤（`WHERE created_at >= ...`）
+- 注意：某一天没有记录时，后端需要补零，保证返回的日期序列连续；时间范围过滤建议用 `created_at >= ? AND created_at < ?` 的范围查询，避免对 `created_at` 加函数（如 `DATE(created_at) = ?`）导致索引失效。
 
 ### Task 3.4 封装 trend 接口
 - Service 中调用 Task 3.3 的查询，Controller 暴露接口，支持 `range=7d` 或 `range=30d` 参数。
@@ -176,6 +178,7 @@
 - Service + Controller 封装成接口，返回每个模型的 token 数（占比可以在前端算，也可以后端直接算好百分比）。
 - 涉及文件：`service/DashboardService.java`、`controller/DashboardController.java`
 - 验收标准：接口返回结果与手工核算一致。
+- 说明：v0.1 不做模型 ID 归一化，`model` 字段值相同才归为一组；不同名称但实际同一模型的归一化处理留到 v0.5+（见 PLAN.md 第 12 节）。
 
 ### Task 3.7 编写 Provider 占比查询与接口
 - 和 Task 3.5/3.6 逻辑一样，把 `model` 换成 `provider` 分组。

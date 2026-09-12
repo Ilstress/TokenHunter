@@ -1,5 +1,19 @@
+server:
+  address: 127.0.0.1
+
 spring:
   application:
     name: tokenhunter
   profiles:
     active: local
+  datasource:
+    url: jdbc:mysql://localhost:3306/tokenhunter?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+tokenhunter:
+  providers:
+    deepseek:
+      base-url: https://api.deepseek.com
+      api-key: ${DEEPSEEK_API_KEY:}
