@@ -20,6 +20,10 @@ public class UsageRecord {
 
     private Integer inputTokens;
 
+    private Integer cacheHitTokens;
+
+    private Integer cacheMissTokens;
+
     private Integer outputTokens;
 
     private Integer totalTokens;

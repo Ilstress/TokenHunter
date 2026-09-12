@@ -3,6 +3,8 @@ CREATE TABLE usage_record (
     provider        VARCHAR(32)  NOT NULL,
     model           VARCHAR(64)  NOT NULL,
     input_tokens    INT UNSIGNED DEFAULT 0,
+    cache_hit_tokens  INT UNSIGNED DEFAULT 0,   -- 命中缓存的输入 token，无缓存概念时存 0
+    cache_miss_tokens INT UNSIGNED DEFAULT 0,   -- 未命中缓存的输入 token，无缓存概念时存 0
     output_tokens   INT UNSIGNED DEFAULT 0,
     total_tokens    INT UNSIGNED DEFAULT 0,
     duration_ms     INT UNSIGNED DEFAULT 0,

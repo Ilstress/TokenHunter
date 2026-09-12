@@ -127,10 +127,16 @@ CREATE TABLE usage_record (
     provider        VARCHAR(32)  NOT NULL,   -- deepseek / lmstudio
     model           VARCHAR(64)  NOT NULL,
     input_tokens    INT UNSIGNED DEFAULT 0,
+    cache_hit_tokens  INT UNSIGNED DEFAULT 0,   -- 命中缓存的输入 token，无缓存概念时存 0
+    cache_miss_tokens INT UNSIGNED DEFAULT 0,   -- 未命中缓存的输入 token，无缓存概念时存 0
     output_tokens   INT UNSIGNED DEFAULT 0,
     total_tokens    INT UNSIGNED DEFAULT 0,
     duration_ms     INT UNSIGNED DEFAULT 0,
     status          TINYINT      NOT NULL DEFAULT 0,  -- 0=成功 1=失败
+    http_status     INT NULL,                    -- 上游返回的 HTTP 状态码，成功路径也记录
+    error_message   VARCHAR(512) NULL,           -- 失败时的错误摘要，成功时为 NULL
+    endpoint        VARCHAR(128) NULL,           -- 请求的上游路径，如 /v1/chat/completions
+    stream          TINYINT NOT NULL DEFAULT 0,  -- 0=非流式 1=流式
     created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     KEY idx_created_at (created_at),
@@ -165,8 +171,9 @@ tokenhunter:
 ### 6.5 统计口径与数据来源
 
 - **口径定义**：v0.1 的"Token 消耗"以 `input_tokens + output_tokens` 为基础口径，`total_tokens` 取 Provider 返回值或用两者相加校验。
-- **缓存 Token 的预留**：部分 Provider（尤其是支持 Prompt Caching 的模型）会额外返回 `cache_hit`/`cache_miss`/`cache_creation`/`cache_read` 等 token 字段。借鉴通用 API 用量统计实践，这类字段 v0.1 不采集、不建列，但后续若要支持，需要单独记录并纳入总消耗统计，避免在支持 Prompt Caching 的模型上出现统计口径偏差。
-- **v0.1 范围**：仅统计 `input_tokens`、`output_tokens`、`total_tokens` 三个字段，缓存相关口径的扩展留到后续版本（见第 12 节）。
+- **缓存 token 的采集**：DeepSeek 等支持 Prompt Caching 的 Provider 会返回 `prompt_cache_hit_tokens` 和 `prompt_cache_miss_tokens`，TokenHunter 分别存入 `cache_hit_tokens` 和 `cache_miss_tokens` 字段。无缓存概念的 Provider（如 LM Studio）两个字段存 0。
+- **缓存 Token 的预留**：部分 Provider（尤其是支持 Prompt Caching 的模型）会额外返回 `cache_hit`/`cache_miss`/`cache_creation`/`cache_read` 等 token 字段，v0.1 已建列、已采集，但不做费用计算。未来若要按缓存价格分别计费，需要在 v0.2 引入定价配置。
+- **v0.1 范围**：采集 `input_tokens`、`cache_hit_tokens`、`cache_miss_tokens`、`output_tokens`、`total_tokens`，其中 `input_tokens = cache_hit_tokens + cache_miss_tokens`（有缓存时）；无缓存时后两者为 0。
 - **数据来源**：v0.1 只统计经过 TokenHunter Proxy 转发的请求，不扫描本地 CLI 会话文件，不导入任何历史数据。
 - **单位与时区**：所有 Token 数均为整数；时间统一按 `Asia/Shanghai` 存储与展示。
 
@@ -313,6 +320,7 @@ docs/
 ## 12. 后续版本规划（v0.1 完成后再考虑）
 
 - **v0.2**：流式请求支持（SSE 透传 + usage 旁路解析），这是唯一值得专门攻克的技术难点。
+  - **费用统计**：引入定价配置（provider + model → input / output / cache_hit / cache_miss 单价），在查询时计算费用；Dashboard 增加"今日费用""费用趋势""按模型费用占比"卡片。定价会随时间变化，v0.2 设计时需要决定是否记录 price_snapshot。
 - **v0.3**：数据导出、清空数据的前端功能。
 - **v0.4**：Provider 配置从 `application.yml` 迁移到数据库 + 管理页面。
 - **v0.5+**：接入更多 Provider（Ollama、OpenAI 等），此时再考虑做 Provider 抽象层。

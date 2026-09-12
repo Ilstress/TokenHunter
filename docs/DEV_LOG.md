@@ -339,3 +339,29 @@ ALTER TABLE usage_record DROP COLUMN http_status, DROP COLUMN error_message, DRO
 
 错误字段补丁完成，等待你确认后再进入 Task 2.1。
 
+---
+
+## Task 2.1：添加 DeepSeek 配置
+日期：2026-09-12
+
+修改文件：
+- 无（配置已在缓存字段补丁时写入）
+
+核心逻辑：
+Task 2.1 要求将 DeepSeek 的 Provider 配置（base-url、api-key）写入三个配置文件：application.yml（主配置，含 server.address 限制绑定本机）、application-local.example.yml（示例模板，api-key 用环境变量占位）、application-local.yml（本地真实配置，api-key 引用环境变量）。这三个文件在之前的缓存字段补丁时已一次性写入，本轮无需修改。配置中 api-key 始终使用 ${DEEPSEEK_API_KEY} 语法引用环境变量，不硬编码真实 Key，避免意外提交到 git。server.address: 127.0.0.1 使 Tomcat 仅监听本机回环地址，防止代理接口被局域网其他机器访问。
+
+测试方法：
+1. 运行 `mvn -q -DskipTests compile`，编译通过无报错。
+2. 运行 `mvn spring-boot:run`，日志显示 "The following 1 profile is active: local"、"Tomcat started on port 8080 (http) with context path '/'"，lsof 显示绑定在 localhost。
+3. 日志中未出现 api-key 的实际值。
+4. 运行 kill 停止应用，lsof -i :8080 返回 exit code 1（端口释放）。
+
+需要理解的知识点：
+- Spring Boot Profile 机制（application.yml 作为模板，application-local.yml 覆盖）
+- YAML 中 ${ENV_VAR:default} 语法（冒号后为空表示无默认值，变量未设时为空字符串）
+- ${ENV_VAR} 与 ${ENV_VAR:} 的区别（前者未设时 Spring Boot 报错，后者允许为空）
+- server.address 限制 Tomcat 绑定地址，127.0.0.1 仅本机可访问
+
+阻塞事项：
+- 无。Task 2.1 已完成，等待确认后再进入 Task 2.2。
+
