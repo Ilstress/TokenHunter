@@ -50,8 +50,14 @@ public class DeepSeekProxyService {
                     new HttpEntity<>(body, proxyHeaders),
                     String.class
             );
-            log.info("Proxy response: status={}", response.getStatusCode());
-            return response;
+            HttpHeaders safeHeaders = new HttpHeaders();
+            String contentType = response.getHeaders().getFirst("Content-Type");
+            if (contentType != null) {
+                safeHeaders.set("Content-Type", contentType);
+            }
+            return ResponseEntity.status(response.getStatusCode())
+                    .headers(safeHeaders)
+                    .body(response.getBody());
         } catch (HttpStatusCodeException e) {
             log.warn("Proxy upstream error: status={}, body={}", e.getStatusCode(), e.getResponseBodyAsString());
             return ResponseEntity.status(e.getStatusCode())

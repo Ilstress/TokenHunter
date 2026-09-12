@@ -549,3 +549,49 @@ mysql -u root tokenhunter -e "SELECT COUNT(*) FROM usage_record;"
 - chunked 响应体中 leak 的 chunk 大小标记需要修复（RestTemplate 应使用流式处理或 `ResponseExtractor` 正确剥离 chunk 标记）
 - 401 透传：当前设计使用服务端 apiKey，客户端传入的 Authorization 头被覆盖。如果需求是"透传客户端 Authorization 头"，需修改 `DeepSeekProxyService.java:44`，改为使用客户端头而非服务端配置。如果需求是"始终用服务端 Key"，则 401 透传测试不适用，应跳过。
 - Task 2.3 验证完成，等待你确认后再进入 Task 2.4。
+
+---
+
+## 修复：双层 chunked 编码（Transfer-Encoding 重复添加）
+日期：2026-09-12
+
+问题：
+- DeepSeekProxyService.forward() 第 54 行直接 `return response`，将 RestTemplate 接收到的上游 ResponseEntity 原样返回，包含 Transfer-Encoding、Server、X-Cache、Via、CloudFront 等所有响应头。
+- Tomcat 看到 Transfer-Encoding: chunked 后，又对 body 加了一层 chunked 编码，导致客户端收到双层编码。
+- curl 报错：`curl: (56) chunk hex-length char not a hex digit: 0x7b`
+
+修改文件：
+- `backend/src/main/java/com/tokenhunter/service/proxy/DeepSeekProxyService.java` — 修改，不再透传上游 ResponseEntity，仅保留 Content-Type 头。
+
+关键代码片段（修改后，原第 53-54 行）：
+```java
+HttpHeaders safeHeaders = new HttpHeaders();
+String contentType = response.getHeaders().getFirst("Content-Type");
+if (contentType != null) {
+    safeHeaders.set("Content-Type", contentType);
+}
+return ResponseEntity.status(response.getStatusCode())
+        .headers(safeHeaders)
+        .body(response.getBody());
+```
+
+修改前：`return response;`（透传所有上游响应头）
+修改后：仅保留 Content-Type，其他头全部丢弃。
+
+验证：
+1. 运行 `mvn -q -DskipTests compile`，编译通过无报错。
+2. 启动应用 `mvn spring-boot:run`，日志显示 "Started TokenHunterApplication in 0.692 seconds"。
+3. `curl -i` 响应头：
+   ```
+   HTTP/1.1 200
+   Content-Type: application/json
+   Content-Length: 454
+   Date: Sat, 12 Sep 2026 09:08:38 GMT
+   ```
+   不再有 Transfer-Encoding、Server、X-Cache、Via、CloudFront 等头 ✅
+4. `wc -c /tmp/proxy-resp.txt` → `454`（文件 > 0）✅
+5. `hexdump -C` 开头 `7b 22 69 64`（{"id"）✅
+6. `python3 -m json.tool` → "合法 JSON" ✅
+
+阻塞事项：
+- 无。双层 chunked 编码已修复，等待你确认后再进入 Task 2.4。
