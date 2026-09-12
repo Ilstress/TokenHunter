@@ -595,3 +595,58 @@ return ResponseEntity.status(response.getStatusCode())
 
 阻塞事项：
 - 无。双层 chunked 编码已修复，等待你确认后再进入 Task 2.4。
+
+---
+
+## Task 2.4：验证转发链路（无统计）
+日期：2026-09-12
+
+修改文件：
+- 无（纯验证任务，未修改任何代码、配置或 schema 文件）
+
+核心逻辑：
+Task 2.4 的目标是确认转发链路 `POST /proxy/deepseek/v1/chat/completions → https://api.deepseek.com/v1/chat/completions` 的稳定性——在双层 chunked 编码已修复的前提下，用多种不同内容的请求验证转发本身不丢数据、不格式错乱。本轮不涉及 usage 解析、不写数据库、不计算耗时。流程：预检环境（API key、JDK 版本、端口空闲）→ 启动应用 → 依次 5 种不同请求 → 验证响应状态码/响应头/JSON 合法性/usage.total_tokens → 确认数据库无新增 → 停止应用 → 确认端口释放。
+
+测试方法：
+1. 环境预检：
+   - `echo $DEEPSEEK_API_KEY` → 输出 `sk-be...`（以 sk- 开头，有值）✅
+   - `java -version` → OpenJDK 21.0.12.1 ✅
+   - `lsof -i :8080` → 有残留进程 PID 7049，`kill 7049` 后端口释放 ✅
+
+2. 启动应用：
+   - `mvn spring-boot:run`，日志：
+     - "The following 1 profile is active: local"
+     - "Tomcat initialized with port 8080 (http)"
+     - "Tomcat started on port 8080 (http) with context path '/'"
+     - "Started TokenHunterApplication in 0.775 seconds"
+     - 无 ERROR/Exception ✅
+
+3. 5 次请求验证：
+
+| # | 请求类型 | 请求体摘要 | HTTP 状态 | Content-Type | Transfer-Encoding | JSON 合法 | total_tokens | 备注 |
+|---|---------|-----------|-----------|-------------|-------------------|----------|-------------|------|
+| 1 | 短英文 | "Say hi in one word." | 200 | application/json | 无 | ✅ 是 | 11 | 响应 content: "Hi" |
+| 2 | 中文 | "用一句话介绍杭州。" | 200 | application/json | 无 | ✅ 是 | 32 | 响应中文正常 |
+| 3 | 多轮对话 | system + user 两条消息 | 200 | application/json | 无 | ✅ 是 | 17 | 响应 content: "4" |
+| 4 | 限制 max_tokens=5 | "Count from 1 to 100." | 200 | application/json | 无 | ✅ 是 | 17 | finish_reason: "length"，max_tokens 生效 |
+| 5 | 空消息 | content: "" | 200 | application/json | 无 | ✅ 是 | 79 | DeepSeek 返回长回复，非 400 |
+
+4. 响应头验证（5 次全部一致）：
+   - 仅含：Content-Type、Content-Length、Date ✅
+   - 无 Transfer-Encoding、Server、Via、X-Cache ✅
+
+5. 数据库验证：
+   - `mysql -u root tokenhunter -e "SELECT COUNT(*) FROM usage_record;"` → 4 条（无新增）✅
+
+6. 停止应用：
+   - 终止后台进程，`lsof -i :8080` → 端口释放 ✅
+
+需要理解的知识点：
+- 转发链路稳定性的判定标准：HTTP 状态码正确、响应头干净（无透传上游代理层头）、body 为合法 JSON、usage 字段完整
+- 双层 chunked 编码的成因：RestTemplate 接收上游 chunked 响应时 body 已剥离 chunk 标记，但如果将 ResponseEntity 原样返回，Tomcat 看到 Transfer-Encoding: chunked 响应头后会对 body 再加一层 chunked 编码
+- 空消息边界处理：DeepSeek 允许 content 为空的请求，不返回 400，而是正常回复长文本（Task 2.4 不为此修改代码）
+- 验证不写数据库的原因：Task 2.3 的转发接口不含 usage 解析和落库逻辑，usage_record 应保持 Task 2.3 之前的 4 条不变
+
+阻塞事项：
+- 无。5 次请求全部通过验证，转发链路稳定可靠。
+- Task 2.4 已完成，等待你确认后再进入 Task 2.5。
