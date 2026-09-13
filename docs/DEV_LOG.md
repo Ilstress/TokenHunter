@@ -1141,3 +1141,29 @@ UsageRecord saved: id=26
 - 无。Task 2.11 机器验证完成，等待你人工打开 DeepSeek 官方后台核对这 5 次的 token 数。
 
 Task 2.11 机器验证完成，等待你人工核对官方后台。
+
+---
+
+## Phase 2 总结
+完成时间：2026-09-13
+完成范围：Task 2.1 - 2.11
+
+### 关键成果
+- DeepSeek Proxy 转发链路跑通（POST /proxy/deepseek/** → https://api.deepseek.com/**）
+- usage 解析（含 cache_hit / cache_miss 细分）
+- UsageRecord 自动落库（MyBatis-Plus insert 自增主键回填）
+- 双层 chunked 编码修复（仅保留 Content-Type 头，丢弃上游代理层响应头）
+- 错误响应透传 + status=1 记录（HttpStatusCodeException，401）
+- 网络异常处理 + status=1 记录（ResourceAccessException，ConnectException, http_status=NULL）
+- 真实请求与 DeepSeek 官方后台核对一致（5 条请求 curl vs DB total_tokens 完全匹配）
+
+### 遗留问题
+- Authorization 策略（服务端 key 覆盖客户端）需要同步到 PLAN.md 和 PHASES.md
+- 数据库有 27 条混合测试数据（含 2 条失败记录 id=27, 30），Phase 3 需要决定是否清理
+- 越界记录：id 7-16 被消耗后删除，Claude Code 未报告
+
+### 需要理解的知识点
+- RestTemplate 与 HttpStatusCodeException、ResourceAccessException 的关系
+- 上游响应头透传的风险（双层 chunked）
+- 上游 4xx/5xx 与网络异常的区分处理
+- usage 字段的解析口径（prompt_tokens vs cache 细分）
