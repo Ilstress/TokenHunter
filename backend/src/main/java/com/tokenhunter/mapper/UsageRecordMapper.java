@@ -29,4 +29,11 @@ public interface UsageRecordMapper extends BaseMapper<UsageRecord> {
             "GROUP BY DATE(created_at) " +
             "ORDER BY day ASC")
     List<Map<String, Object>> selectDailyTrend(@Param("days") int days);
+
+    @Select("SELECT model, COALESCE(SUM(total_tokens), 0) AS totalTokens " +
+            "FROM usage_record " +
+            "WHERE status = 0 " +
+            "GROUP BY model " +
+            "ORDER BY totalTokens DESC")
+    List<Map<String, Object>> selectModelUsage();
 }

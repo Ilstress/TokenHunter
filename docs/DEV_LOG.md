@@ -1439,3 +1439,41 @@ public List<Map<String, Object>> trend(@RequestParam(value = "range", defaultVal
 
 阻塞事项：
 - 无。Task 3.4 已完成，等待你确认后再进入 Task 3.5。
+
+---
+
+## Task 3.5：编写模型占比查询 SQL
+
+日期：2026-09-13
+
+修改文件：
+- `backend/src/main/java/com/tokenhunter/mapper/UsageRecordMapper.java` — 修改，新增 `selectModelUsage()` 方法
+
+核心逻辑：
+在 UsageRecordMapper 接口中新增 `selectModelUsage()` 方法，使用 MyBatis `@Select` 注解。SQL 按 model 分组统计全部历史成功记录的 total_tokens 总和：`COALESCE(SUM(total_tokens), 0) AS totalTokens` 求和并处理 NULL，`GROUP BY model` 按模型分组，`ORDER BY totalTokens DESC` 按总 token 数降序排列，使前端饼图从大到小展示。WHERE 条件仅 `status = 0`（仅成功记录），不做时间范围过滤，语义为模型历史全量统计。返回值 `List<Map<String, Object>>`，key 为 model / totalTokens，不创建 DTO 类。百分比计算由 Task 3.6 的 Service 层或前端决定，模型 ID 归一化 v0.1 不做。
+
+关键代码片段（UsageRecordMapper.java 新增方法）：
+```java
+@Select("SELECT model, COALESCE(SUM(total_tokens), 0) AS totalTokens " +
+        "FROM usage_record " +
+        "WHERE status = 0 " +
+        "GROUP BY model " +
+        "ORDER BY totalTokens DESC")
+List<Map<String, Object>> selectModelUsage();
+```
+
+测试方法：
+1. 运行 `mvn -q -DskipTests compile`，编译通过无报错 ✅
+2. MySQL 直接查询：`mysql -u root tokenhunter -e "SELECT model, COALESCE(SUM(total_tokens), 0) AS totalTokens FROM usage_record WHERE status = 0 GROUP BY model ORDER BY totalTokens DESC;"` → 1 行：deepseek-chat, 3074 ✅
+3. 创建临时 TempModelRunner（@Component + CommandLineRunner），启动应用后日志打印 `TEMP MODEL: [{model=deepseek-chat, totalTokens=3074}]` ✅
+4. TEMP MODEL 输出与 MySQL 直接查询结果完全一致 ✅
+5. 删除临时 TempModelRunner.java，重新编译通过 ✅
+
+需要理解的知识点：
+- `GROUP BY model` 的语义：按 model 列的值分组，每组一行，适合统计各模型的总 token 消耗占比
+- `ORDER BY totalTokens DESC` 的必要性：前端饼图按占比从大到小展示更符合阅读习惯
+- 不做时间范围过滤的原因：模型占比是历史全量语义，不应限定"今日"或"近 N 天"
+- `List<Map<String, Object>>` 而非 DTO 类：v0.1 快速验证，后续若需序列化到前端可考虑提取
+
+阻塞事项：
+- 无。Task 3.5 已完成，等待你确认后再进入 Task 3.6。
