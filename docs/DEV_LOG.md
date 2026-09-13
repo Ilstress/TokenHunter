@@ -1293,3 +1293,52 @@ public class DashboardController {
 
 阻塞事项：
 - 无。Task 3.2 已完成，等待你确认后再进入 Task 3.3。
+
+---
+
+## Task 3.3：编写趋势查询 SQL
+
+日期：2026-09-13
+
+修改文件：
+- `backend/src/main/java/com/tokenhunter/mapper/UsageRecordMapper.java` — 修改，新增 `selectDailyTrend()` 方法和对应 import
+
+核心逻辑：
+在 UsageRecordMapper 接口中新增 `selectDailyTrend(@Param("days") int days)` 方法，使用 MyBatis `@Select` 注解。SQL 按天分组统计最近 N 天的 total_tokens 总和：`DATE(created_at) AS day` 取日期部分，`COALESCE(SUM(total_tokens), 0) AS totalTokens` 求和并处理 NULL。WHERE 条件：`status = 0`（仅成功记录），`created_at >= CURDATE() - INTERVAL #{days} DAY AND created_at < CURDATE() + INTERVAL 1 DAY`（范围查询，避免对 created_at 加函数导致索引失效）。GROUP BY DATE(created_at) 按天聚合，ORDER BY day ASC 按时间正序。返回值 `List<Map<String, Object>>`，key 为 day（如 2026-09-11）和 totalTokens。新增 import：`org.apache.ibatis.annotations.Param` 和 `java.util.List`。不创建 DTO 类，不做补零（补零逻辑在 Task 3.4 的 Service 层做）。
+
+关键代码片段（UsageRecordMapper.java 新增方法）：
+```java
+@Select("SELECT DATE(created_at) AS day, COALESCE(SUM(total_tokens), 0) AS totalTokens " +
+        "FROM usage_record " +
+        "WHERE status = 0 " +
+        "AND created_at >= CURDATE() - INTERVAL #{days} DAY " +
+        "AND created_at < CURDATE() + INTERVAL 1 DAY " +
+        "GROUP BY DATE(created_at) " +
+        "ORDER BY day ASC")
+List<Map<String, Object>> selectDailyTrend(@Param("days") int days);
+```
+
+测试方法：
+1. 运行 `mvn -q -DskipTests compile`，编译通过无报错 ✅
+2. MySQL 查询 7 天：`mysql -u root tokenhunter -e "SELECT DATE(created_at) AS day, COALESCE(SUM(total_tokens), 0) AS totalTokens FROM usage_record WHERE status = 0 AND created_at >= CURDATE() - INTERVAL 7 DAY AND created_at < CURDATE() + INTERVAL 1 DAY GROUP BY DATE(created_at) ORDER BY day ASC;"`
+   → 2 行：2026-09-11 (999), 2026-09-13 (2075) ✅
+3. MySQL 查询 30 天：`mysql -u root tokenhunter -e "SELECT DATE(created_at) AS day, COALESCE(SUM(total_tokens), 0) AS totalTokens FROM usage_record WHERE status = 0 AND created_at >= CURDATE() - INTERVAL 30 DAY AND created_at < CURDATE() + INTERVAL 1 DAY GROUP BY DATE(created_at) ORDER BY day ASC;"`
+   → 2 行：2026-09-11 (999), 2026-09-13 (2075) ✅
+4. 创建临时 TempTrendRunner，启动应用，grep "TEMP TREND" /tmp/app-33.log →
+   ```
+   TEMP TREND 7d: [{day=2026-09-11, totalTokens=999}, {day=2026-09-13, totalTokens=2075}]
+   TEMP TREND 30d: [{day=2026-09-11, totalTokens=999}, {day=2026-09-13, totalTokens=2075}]
+   ```
+   与 MySQL 输出行数、数字完全一致 ✅
+5. 删除 TempTrendRunner.java，ls 确认文件不存在 ✅
+6. 重新编译 `mvn -q -DskipTests compile`，编译通过无报错 ✅
+
+需要理解的知识点：
+- `@Param` 注解的作用：给方法参数命名，使 `#{days}` 能正确绑定到参数
+- `CURDATE() - INTERVAL #{days} DAY`  vs `DATE(created_at) >= ...`：前者对参数做运算，对列不做运算，可以使用 created_at 上的索引；后者对列加函数，导致索引失效
+- `GROUP BY DATE(created_at)` 的必要性：如果没有 GROUP BY，SUM 会跨所有行合并为一行
+- `List<Map<String, Object>>` 的序列化：MyBatis 将每行结果转为 Map，key 为列别名，整个结果集为 List
+- 补零逻辑为什么不在 SQL 层做：MySQL 没有内置的日期序列生成器（PostgreSQL 有 generate_series），需要 Service 层用 Java 生成日期范围后 LEFT JOIN
+
+阻塞事项：
+- 无。Task 3.3 已完成，等待你确认后再进入 Task 3.4。
