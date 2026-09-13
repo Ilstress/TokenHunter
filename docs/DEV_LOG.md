@@ -886,3 +886,91 @@ UsageRecord saved: id=26
 - 推测是 Claude Code 循环期间跑了多次请求，之后自行清理。
 - 当前 16 条记录全部 status=0、http_status=200，数据本身正确。
 - 处理：接受现状。后续检查数据时，不要只看 COUNT，要看 id 范围和 created_at 时间线。
+
+---
+
+## Task 2.9：处理 DeepSeek 错误响应
+
+日期：2026-09-13
+
+修改文件：
+- `backend/src/main/java/com/tokenhunter/service/proxy/DeepSeekProxyService.java` — 修改，在 catch (HttpStatusCodeException e) 分支中增加失败记录写入
+
+核心逻辑：
+`forward()` 方法中，`startTime` 从 try 块内部移到 try 块之前（第 102 行），确保 catch 块能正确计算耗时。在 catch (HttpStatusCodeException e) 分支（第 148-181 行）中：1) 计算 durationMs（endTime - startTime）；2) 提取 errorMessage（responseBody 非空则用之，否则用异常类名，截断到 512 字符）；3) 组装 UsageRecord：provider="deepseek"，model 从请求体 JSON 的 "model" 字段读取（为空则 "unknown"），所有 token 字段为 0，status=1，httpStatus=e.getStatusCode().value()，errorMessage 为截断后的错误信息，endpoint=path，stream=0，createdAt=null；4) 用 try-catch 包裹 usageRecordService.save(record)，保存失败只打 warn 日志，不影响客户端响应；5) 返回 ResponseEntity 状态码和 body 与上游一致（Task 2.3 的透传逻辑保持不变）。
+
+关键代码片段（DeepSeekProxyService.java 第 148-181 行，修改后）：
+```java
+} catch (HttpStatusCodeException e) {
+    long endTime = System.nanoTime();
+    long durationMs = (endTime - startTime) / 1_000_000;
+    log.warn("Proxy upstream error: status={}, body={}", e.getStatusCode(), e.getResponseBodyAsString());
+    String errorBody = e.getResponseBodyAsString();
+    String errorMsg = (errorBody != null && !errorBody.isBlank()) ? errorBody : e.getClass().getSimpleName();
+    if (errorMsg.length() > 512) {
+        errorMsg = errorMsg.substring(0, 512);
+    }
+    UsageRecord record = new UsageRecord();
+    record.setProvider("deepseek");
+    record.setModel(extractModel(body, null));
+    record.setInputTokens(0);
+    record.setCacheHitTokens(0);
+    record.setCacheMissTokens(0);
+    record.setOutputTokens(0);
+    record.setTotalTokens(0);
+    record.setDurationMs((int) durationMs);
+    record.setStatus(1);
+    record.setHttpStatus(e.getStatusCode().value());
+    record.setErrorMessage(errorMsg);
+    record.setEndpoint(path);
+    record.setStream(0);
+    record.setCreatedAt(null);
+    try {
+        usageRecordService.save(record);
+        log.warn("Upstream error: status={}, saved failure record id={}", e.getStatusCode().value(), record.getId());
+    } catch (Exception saveEx) {
+        log.warn("Failed to save failure record: {}", saveEx.getMessage());
+    }
+    return ResponseEntity.status(e.getStatusCode())
+            .header("Content-Type", "application/json")
+            .body(e.getResponseBodyAsString());
+}
+```
+
+测试方法：
+1. 启动应用：`mvn spring-boot:run > /tmp/app-29.log 2>&1 &`，等待 8 秒后 `curl -s -o /dev/null -w "ping_status=%{http_code}\n" http://127.0.0.1:8080/ping` → ping_status=200 ✅
+2. 备份并临时改 api-key：`cp .../application-local.yml /tmp/application-local.yml.bak`，`sed -i '' 's/api-key:.*/api-key: sk-invalid-for-testing-29/' .../application-local.yml` → 显示 `api-key: sk-invalid-for-testing-29` ✅
+3. 重启应用：`lsof -ti :8080 | xargs kill -9`，`mvn spring-boot:run > /tmp/app-29b.log 2>&1 &`，等待 8 秒后 ping → 200 ✅
+4. 记录初始数据库条数：`mysql -u root tokenhunter -e "SELECT COUNT(*) FROM usage_record;"` → 16 条（before_count=16）
+5. 发错误请求：
+   ```
+   curl -i --max-time 30 -X POST http://127.0.0.1:8080/proxy/deepseek/v1/chat/completions \
+     -H "Content-Type: application/json" \
+     -d '{"model":"deepseek-chat","stream":false,"messages":[{"role":"user","content":"hi"}]}'
+   ```
+   返回：
+   ```
+   HTTP/1.1 401
+   Content-Type: application/json
+   Content-Length: 0
+   Date: Sun, 13 Sep 2026 09:20:15 GMT
+   ```
+   HTTP 401（不是 500），body 为空（DeepSeek 对无效 key 返回空 body）✅
+6. 查数据库：
+   - `SELECT COUNT(*) FROM usage_record;` → 17 条（= before_count + 1）✅
+   - `SELECT id, provider, model, input_tokens, output_tokens, total_tokens, status, http_status, error_message, endpoint, stream FROM usage_record ORDER BY id DESC LIMIT 1;`
+     → id=27, provider=deepseek, model=deepseek-chat, input_tokens=0, output_tokens=0, total_tokens=0, status=1, http_status=401, error_message=Unauthorized, endpoint=/v1/chat/completions, stream=0 ✅
+7. 检查日志：`grep "Upstream error" /tmp/app-29b.log`
+   → `2026-09-13T17:20:15.001+08:00  WARN 38842 ... Upstream error: status=401, saved failure record id=27` ✅
+8. 恢复 api-key：`cp /tmp/application-local.yml.bak .../application-local.yml` → 显示 `api-key: ${DEEPSEEK_API_KEY}` ✅
+9. 重启应用，确认真实 key 恢复正常：
+   ```
+   curl -i --max-time 30 -X POST http://127.0.0.1:8080/proxy/deepseek/v1/chat/completions \
+     -H "Content-Type: application/json" \
+     -d '{"model":"deepseek-chat","stream":false,"messages":[{"role":"user","content":"hi"}]}'
+   ```
+   → HTTP/1.1 200，响应体包含正常对话 JSON，usage 字段完整 ✅
+10. 停止应用：`lsof -ti :8080 | xargs kill -9` → 停止成功 ✅
+
+阻塞事项：
+- 无。Task 2.9 已完成，等待你确认后再进入 Task 2.10。

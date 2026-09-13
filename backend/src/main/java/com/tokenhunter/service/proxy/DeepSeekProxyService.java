@@ -99,8 +99,8 @@ public class DeepSeekProxyService {
         });
         proxyHeaders.setBearerAuth(apiKey);
 
+        long startTime = System.nanoTime();
         try {
-            long startTime = System.nanoTime();
             ResponseEntity<String> response = restTemplate.exchange(
                     url,
                     HttpMethod.POST,
@@ -146,7 +146,35 @@ public class DeepSeekProxyService {
                     .headers(safeHeaders)
                     .body(response.getBody());
         } catch (HttpStatusCodeException e) {
+            long endTime = System.nanoTime();
+            long durationMs = (endTime - startTime) / 1_000_000;
             log.warn("Proxy upstream error: status={}, body={}", e.getStatusCode(), e.getResponseBodyAsString());
+            String errorBody = e.getResponseBodyAsString();
+            String errorMsg = (errorBody != null && !errorBody.isBlank()) ? errorBody : e.getClass().getSimpleName();
+            if (errorMsg.length() > 512) {
+                errorMsg = errorMsg.substring(0, 512);
+            }
+            UsageRecord record = new UsageRecord();
+            record.setProvider("deepseek");
+            record.setModel(extractModel(body, null));
+            record.setInputTokens(0);
+            record.setCacheHitTokens(0);
+            record.setCacheMissTokens(0);
+            record.setOutputTokens(0);
+            record.setTotalTokens(0);
+            record.setDurationMs((int) durationMs);
+            record.setStatus(1);
+            record.setHttpStatus(e.getStatusCode().value());
+            record.setErrorMessage(errorMsg);
+            record.setEndpoint(path);
+            record.setStream(0);
+            record.setCreatedAt(null);
+            try {
+                usageRecordService.save(record);
+                log.warn("Upstream error: status={}, saved failure record id={}", e.getStatusCode().value(), record.getId());
+            } catch (Exception saveEx) {
+                log.warn("Failed to save failure record: {}", saveEx.getMessage());
+            }
             return ResponseEntity.status(e.getStatusCode())
                     .header("Content-Type", "application/json")
                     .body(e.getResponseBodyAsString());
