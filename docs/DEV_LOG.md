@@ -1167,3 +1167,129 @@ Task 2.11 机器验证完成，等待你人工核对官方后台。
 - 上游响应头透传的风险（双层 chunked）
 - 上游 4xx/5xx 与网络异常的区分处理
 - usage 字段的解析口径（prompt_tokens vs cache 细分）
+
+---
+
+## Task 3.1：编写"今日概况"SQL 查询
+
+日期：2026-09-13
+
+修改文件：
+- `backend/src/main/java/com/tokenhunter/mapper/UsageRecordMapper.java` — 修改，新增 `selectTodaySummary()` 方法
+
+核心逻辑：
+在 UsageRecordMapper 接口中新增 `selectTodaySummary()` 方法，使用 MyBatis `@Select` 注解直接写 SQL。查询三个聚合值：1) `COALESCE(SUM(total_tokens), 0) AS totalTokens` — 今日成功请求的 total_tokens 总和，用 COALESCE 处理空表时 SUM 返回 NULL 的情况；2) `COUNT(*) AS requestCount` — 今日成功请求次数；3) `COUNT(DISTINCT model) AS modelCount` — 今日成功请求涉及的 distinct model 数量。WHERE 条件：`status = 0`（仅成功记录）、`created_at >= CURDATE() AND created_at < CURDATE() + INTERVAL 1 DAY`（今日 0:00:00 到 23:59:59）。时间范围不使用 `DATE(created_at) = CURDATE()`，避免函数包裹列名导致索引失效。返回类型用 `java.util.Map<String, Object>`，key 为 totalTokens / requestCount / modelCount，不创建 DTO 类。
+
+关键代码片段（UsageRecordMapper.java）：
+```java
+@Select("SELECT COALESCE(SUM(total_tokens), 0) AS totalTokens, " +
+        "COUNT(*) AS requestCount, " +
+        "COUNT(DISTINCT model) AS modelCount " +
+        "FROM usage_record " +
+        "WHERE status = 0 " +
+        "AND created_at >= CURDATE() " +
+        "AND created_at < CURDATE() + INTERVAL 1 DAY")
+Map<String, Object> selectTodaySummary();
+```
+
+测试方法：
+1. 编译：`mvn -q -DskipTests compile` → 编译通过无报错 ✅
+2. MySQL 直接查询：`mysql -u root tokenhunter -e "SELECT COALESCE(SUM(total_tokens), 0) AS totalTokens, COUNT(*) AS requestCount, COUNT(DISTINCT model) AS modelCount FROM usage_record WHERE status = 0 AND created_at >= CURDATE() AND created_at < CURDATE() + INTERVAL 1 DAY;"`
+   → totalTokens=2075, requestCount=21, modelCount=1 ✅
+3. 创建临时 TempSummaryRunner（@Component + CommandLineRunner），启动应用后日志打印 `TEMP SUMMARY: {requestCount=21, totalTokens=2075, modelCount=1}` ✅
+4. TEMP SUMMARY 输出与 MySQL 直接查询结果完全一致 ✅
+5. 删除临时 TempSummaryRunner.java，重新编译通过 ✅
+
+阻塞事项：
+- 无。Task 3.1 已完成，等待你确认后再进入 Task 3.2。
+
+---
+
+## Task 3.2：封装 Dashboard 接口
+
+日期：2026-09-13
+
+修改文件：
+- `backend/src/main/java/com/tokenhunter/service/DashboardService.java` — 新建，Service 层封装
+- `backend/src/main/java/com/tokenhunter/controller/DashboardController.java` — 新建，REST Controller
+
+核心逻辑：
+DashboardService 位于 `com.tokenhunter.service` 包，标注 @Service，构造器注入 UsageRecordMapper。提供 `getTodaySummary()` 方法，内部直接调用 `mapper.selectTodaySummary()` 并返回 Map，不做任何额外计算或字段转换。DashboardController 位于 `com.tokenhunter.controller` 包，标注 @RestController 和 @RequestMapping("/api/dashboard")，构造器注入 DashboardService。定义 GET /api/dashboard/summary 接口，调用 `dashboardService.getTodaySummary()`，返回 Map<String, Object>，Spring MVC 自动序列化为 JSON。不添加 @CrossOrigin（CORS 已在 CorsConfig 全局配置），不添加 @RequestParam（无参数），不写全局异常处理，不写测试类。
+
+关键代码片段（DashboardService.java）：
+```java
+package com.tokenhunter.service;
+
+import com.tokenhunter.mapper.UsageRecordMapper;
+import org.springframework.stereotype.Service;
+
+import java.util.Map;
+
+@Service
+public class DashboardService {
+
+    private final UsageRecordMapper usageRecordMapper;
+
+    public DashboardService(UsageRecordMapper usageRecordMapper) {
+        this.usageRecordMapper = usageRecordMapper;
+    }
+
+    public Map<String, Object> getTodaySummary() {
+        return usageRecordMapper.selectTodaySummary();
+    }
+}
+```
+
+关键代码片段（DashboardController.java）：
+```java
+package com.tokenhunter.controller;
+
+import com.tokenhunter.service.DashboardService;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/dashboard")
+public class DashboardController {
+
+    private final DashboardService dashboardService;
+
+    public DashboardController(DashboardService dashboardService) {
+        this.dashboardService = dashboardService;
+    }
+
+    @GetMapping("/summary")
+    public Map<String, Object> summary() {
+        return dashboardService.getTodaySummary();
+    }
+}
+```
+
+测试方法：
+1. 运行 `mvn -q -DskipTests compile`，编译通过无报错 ✅
+2. 启动应用（后台）：`mvn spring-boot:run > /tmp/app-32.log 2>&1 &`，等待 8 秒后 `curl -s -o /dev/null -w "ping_status=%{http_code}\n" http://127.0.0.1:8080/ping` → ping_status=200 ✅
+3. 调用 summary 接口：`curl -i -sS http://127.0.0.1:8080/api/dashboard/summary` →
+   ```
+   HTTP/1.1 200
+   Content-Type: application/json
+   Transfer-Encoding: chunked
+   Date: Sun, 13 Sep 2026 12:03:01 GMT
+
+   {"requestCount":21,"totalTokens":2075,"modelCount":1}
+   ```
+   HTTP 200 ✅，Content-Type application/json ✅，body 为 `{"requestCount":21,"totalTokens":2075,"modelCount":1}` ✅
+4. MySQL 核对：`mysql -u root tokenhunter -e "SELECT COALESCE(SUM(total_tokens), 0) AS totalTokens, COUNT(*) AS requestCount, COUNT(DISTINCT model) AS modelCount FROM usage_record WHERE status = 0 AND created_at >= CURDATE() AND created_at < CURDATE() + INTERVAL 1 DAY;"` → totalTokens=2075, requestCount=21, modelCount=1 ✅，与接口输出一致
+5. 停止应用：`lsof -ti :8080 | xargs kill -9` → 停止成功 ✅
+
+需要理解的知识点：
+- Service 层作为 Mapper 与 Controller 之间的薄封装（何时该封装、何时直接透传）
+- Spring MVC 将 Map<String, Object> 自动序列化为 JSON 响应（key 为 JSON 属性名，value 为对应值）
+- MyBatis-Plus @Select 返回 Map 时，key 为 SQL 别名（AS 后面的名称），value 为查询结果
+- CURDATE() 返回当前日期（如 2026-09-13），`>= CURDATE() AND < CURDATE() + INTERVAL 1 DAY` 覆盖全天范围
+- COUNT(DISTINCT model) 统计不同 model 的数量，当表中只有一个 model 时返回 1
+
+阻塞事项：
+- 无。Task 3.2 已完成，等待你确认后再进入 Task 3.3。
