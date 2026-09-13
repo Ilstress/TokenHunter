@@ -36,4 +36,13 @@ public class DashboardController {
         }
         return dashboardService.getDailyTrend(days);
     }
+
+    /**
+     * GET /api/dashboard/model-usage
+     * Return model usage with percentage of total tokens.
+     */
+    @GetMapping("/model-usage")
+    public List<Map<String, Object>> modelUsage() {
+        return dashboardService.getModelUsage();
+    }
 }

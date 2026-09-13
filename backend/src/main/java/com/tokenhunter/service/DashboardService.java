@@ -66,4 +66,46 @@ public class DashboardService {
         }
         return result;
     }
+
+    /**
+     * Return model usage with percentage of total tokens.
+     * percentage = Math.round(tokens * 10000.0 / total) / 100.0  (2 decimal places).
+     * If total == 0, all percentages are 0.0 to avoid division by zero.
+     */
+    public List<Map<String, Object>> getModelUsage() {
+        List<Map<String, Object>> sqlResult = usageRecordMapper.selectModelUsage();
+
+        // 先算总数，用于计算百分比
+        long total = 0;
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Map<String, Object> row : sqlResult) {
+            Object tokensObj = row.get("totalTokens");
+            long tokens;
+            if (tokensObj instanceof Long) {
+                tokens = (Long) tokensObj;
+            } else if (tokensObj instanceof Integer) {
+                tokens = ((Integer) tokensObj).longValue();
+            } else if (tokensObj instanceof java.math.BigInteger) {
+                tokens = ((java.math.BigInteger) tokensObj).longValue();
+            } else {
+                tokens = Long.parseLong(tokensObj.toString());
+            }
+            total += tokens;
+
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("model", row.get("model"));
+            entry.put("totalTokens", tokens);
+            entry.put("percentage", 0.0); // 占位，后面更新
+            rows.add(entry);
+        }
+
+        // 计算百分比
+        for (Map<String, Object> row : rows) {
+            long tokens = (Long) row.get("totalTokens");
+            double percentage = (total == 0) ? 0.0 : Math.round(tokens * 10000.0 / total) / 100.0;
+            row.put("percentage", percentage);
+        }
+
+        return rows;
+    }
 }

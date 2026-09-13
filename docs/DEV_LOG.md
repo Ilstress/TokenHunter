@@ -1477,3 +1477,27 @@ List<Map<String, Object>> selectModelUsage();
 
 阻塞事项：
 - 无。Task 3.5 已完成，等待你确认后再进入 Task 3.6。
+
+## Task 3.6：封装 model-usage 接口
+日期：2026-09-13
+
+修改文件：
+- `backend/src/main/java/com/tokenhunter/service/DashboardService.java` — 新增 getModelUsage()
+- `backend/src/main/java/com/tokenhunter/controller/DashboardController.java` — 新增 GET /api/dashboard/model-usage
+
+核心逻辑：
+DashboardService.getModelUsage() 调用 mapper.selectModelUsage()，遍历结果计算 total，再为每个 model 计算百分比（四舍五入保留 2 位小数），返回 [{"model":"...","totalTokens":N,"percentage":X.XX}]。
+total=0 时 percentage 返回 0.0，避免除零。
+
+测试方法：
+1. curl http://127.0.0.1:8080/api/dashboard/model-usage
+2. 与 MySQL 的 GROUP BY model 结果对照
+
+测试结果：
+- 接口返回 [{"model":"deepseek-chat","totalTokens":3074,"percentage":100.0}]
+- 与 MySQL 一致
+
+需要理解的知识点：
+- 百分比计算用 Math.round 避免浮点误差
+- 除零保护
+- LinkedHashMap 保证字段顺序
