@@ -13,6 +13,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.Map;
@@ -178,6 +179,40 @@ public class DeepSeekProxyService {
             return ResponseEntity.status(e.getStatusCode())
                     .header("Content-Type", "application/json")
                     .body(e.getResponseBodyAsString());
+        } catch (ResourceAccessException e) {
+            long endTime = System.nanoTime();
+            long durationMs = (endTime - startTime) / 1_000_000;
+            Throwable cause = (e.getCause() != null) ? e.getCause() : e;
+            String errorMsg = cause.getClass().getSimpleName() + ": " + cause.getMessage();
+            if (errorMsg.length() > 512) {
+                errorMsg = errorMsg.substring(0, 512);
+            }
+            log.warn("Proxy network error: {}", errorMsg);
+            UsageRecord record = new UsageRecord();
+            record.setProvider("deepseek");
+            record.setModel(extractModel(body, null));
+            record.setInputTokens(0);
+            record.setCacheHitTokens(0);
+            record.setCacheMissTokens(0);
+            record.setOutputTokens(0);
+            record.setTotalTokens(0);
+            record.setDurationMs((int) durationMs);
+            record.setStatus(1);
+            record.setHttpStatus(null);
+            record.setErrorMessage(errorMsg);
+            record.setEndpoint(path);
+            record.setStream(0);
+            record.setCreatedAt(null);
+            try {
+                usageRecordService.save(record);
+                log.warn("Network error: {}, saved failure record id={}", errorMsg, record.getId());
+            } catch (Exception saveEx) {
+                log.warn("Failed to save failure record: {}", saveEx.getMessage());
+            }
+            String errorJson = "{\"error\":\"upstream_unreachable\",\"message\":\"" + errorMsg.replace("\"", "\\\"") + "\"}";
+            return ResponseEntity.status(502)
+                    .header("Content-Type", "application/json")
+                    .body(errorJson);
         }
     }
 }

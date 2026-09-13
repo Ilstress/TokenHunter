@@ -972,5 +972,172 @@ UsageRecord saved: id=26
    → HTTP/1.1 200，响应体包含正常对话 JSON，usage 字段完整 ✅
 10. 停止应用：`lsof -ti :8080 | xargs kill -9` → 停止成功 ✅
 
+---
+
+## Task 2.10：处理网络超时/连接异常
+
+日期：2026-09-13
+
+修改文件：
+- `backend/src/main/java/com/tokenhunter/service/proxy/DeepSeekProxyService.java` — 修改，在 catch (HttpStatusCodeException e) 之后新增 catch (ResourceAccessException e) 分支
+
+核心逻辑：
+`forward()` 方法中，`startTime` 已在 try 块之前（第 102 行）。新增 `catch (ResourceAccessException e)` 分支（第 182-216 行），捕获 RestTemplate 包装的连接异常/超时（包括 SocketTimeoutException、ConnectException、DNS 解析失败等）。在该 catch 分支中：1) 计算 durationMs；2) 提取异常根因（e.getCause() 优先，否则用 e 自身），组装 errorMsg = 异常类名 + ": " + 消息，截断到 512 字符；3) 组装 UsageRecord：provider="deepseek"，model 从请求体 JSON 的 "model" 字段读取（为空则 "unknown"），所有 token 字段为 0，durationMs 为已算出的耗时，status=1，httpStatus=null，errorMessage 为异常类型简述，endpoint="/v1/chat/completions"，stream=0，createdAt=null；4) 用 try-catch 包裹 usageRecordService.save(record)，保存失败只打 warn 日志；5) 日志：`log.warn("Network error: {}, saved failure record id={}", errorMsg, record.getId())`；6) 返回给客户端的响应：构造 JSON body `{"error":"upstream_unreachable","message":"<errorMessage>"}`，HTTP 状态码 502（Bad Gateway），Content-Type: application/json。不修改 forward() 方法签名。
+
+关键代码片段（DeepSeekProxyService.java 第 182-216 行）：
+```java
+} catch (ResourceAccessException e) {
+    long endTime = System.nanoTime();
+    long durationMs = (endTime - startTime) / 1_000_000;
+    Throwable cause = (e.getCause() != null) ? e.getCause() : e;
+    String errorMsg = cause.getClass().getSimpleName() + ": " + cause.getMessage();
+    if (errorMsg.length() > 512) {
+        errorMsg = errorMsg.substring(0, 512);
+    }
+    log.warn("Proxy network error: {}", errorMsg);
+    UsageRecord record = new UsageRecord();
+    record.setProvider("deepseek");
+    record.setModel(extractModel(body, null));
+    record.setInputTokens(0);
+    record.setCacheHitTokens(0);
+    record.setCacheMissTokens(0);
+    record.setOutputTokens(0);
+    record.setTotalTokens(0);
+    record.setDurationMs((int) durationMs);
+    record.setStatus(1);
+    record.setHttpStatus(null);
+    record.setErrorMessage(errorMsg);
+    record.setEndpoint(path);
+    record.setStream(0);
+    record.setCreatedAt(null);
+    try {
+        usageRecordService.save(record);
+        log.warn("Network error: {}, saved failure record id={}", errorMsg, record.getId());
+    } catch (Exception saveEx) {
+        log.warn("Failed to save failure record: {}", saveEx.getMessage());
+    }
+    String errorJson = "{\"error\":\"upstream_unreachable\",\"message\":\"" + errorMsg.replace("\"", "\\\"") + "\"}";
+    return ResponseEntity.status(502)
+            .header("Content-Type", "application/json")
+            .body(errorJson);
+}
+```
+
+测试方法：
+1. 启动应用：`mvn spring-boot:run > /tmp/app-210.log 2>&1 &`，等待 8 秒后 `curl -s -o /dev/null -w "ping_status=%{http_code}\n" http://127.0.0.1:8080/ping` → ping_status=200 ✅
+2. 备份并临时改 base-url：`cp .../application-local.yml /tmp/application-local-210.bak`，`sed -i '' 's|base-url:.*deepseek.*|base-url: http://127.0.0.1:9999|' .../application-local.yml` → 显示 `base-url: http://127.0.0.1:9999` 和 `api-key: ${DEEPSEEK_API_KEY}` ✅
+3. 重启应用：`lsof -ti :8080 | xargs kill -9`，`mvn spring-boot:run > /tmp/app-210b.log 2>&1 &`，等待 8 秒后 ping → 200 ✅
+4. 记录初始数据库条数：`mysql -u root tokenhunter -e "SELECT COUNT(*) FROM usage_record;"` → 19 条（before_count=19）
+5. 发请求触发连接失败：
+   ```
+   curl -i --max-time 30 -X POST http://127.0.0.1:8080/proxy/deepseek/v1/chat/completions \
+     -H "Content-Type: application/json" \
+     -d '{"model":"deepseek-chat","stream":false,"messages":[{"role":"user","content":"hi"}]}'
+   ```
+   返回：
+   ```
+   HTTP/1.1 502
+   Content-Type: application/json
+   Content-Length: 81
+   Date: Sun, 13 Sep 2026 09:40:19 GMT
+
+   {"error":"upstream_unreachable","message":"ConnectException: Connection refused"}
+   ```
+   HTTP 502，body 含 "upstream_unreachable" ✅
+6. 查数据库：
+   - `SELECT COUNT(*) FROM usage_record;` → 20 条（= before_count + 1）✅
+   - `SELECT id, provider, model, input_tokens, output_tokens, total_tokens, status, http_status, error_message, endpoint, stream FROM usage_record ORDER BY id DESC LIMIT 1;`
+     → id=30, provider=deepseek, model=deepseek-chat, input_tokens=0, output_tokens=0, total_tokens=0, status=1, http_status=NULL, error_message="ConnectException: Connection refused", endpoint=/v1/chat/completions, stream=0 ✅
+7. 检查日志：`grep "Network error" /tmp/app-210b.log`
+   → `2026-09-13T17:40:19.476+08:00  WARN 42191 ... Network error: ConnectException: Connection refused, saved failure record id=30` ✅
+8. 恢复 base-url：`cp /tmp/application-local-210.bak .../application-local.yml` → 显示 `base-url: https://api.deepseek.com` ✅
+9. 重启应用，确认真实 base-url 恢复正常：
+   ```
+   curl -i --max-time 30 -X POST http://127.0.0.1:8080/proxy/deepseek/v1/chat/completions \
+     -H "Content-Type: application/json" \
+     -d '{"model":"deepseek-chat","stream":false,"messages":[{"role":"user","content":"hi"}]}'
+   ```
+   → HTTP/1.1 200，响应体包含正常对话 JSON，usage 字段完整 ✅
+10. 停止应用：`lsof -ti :8080 | xargs kill -9` → 停止成功 ✅
+
 阻塞事项：
-- 无。Task 2.9 已完成，等待你确认后再进入 Task 2.10。
+- 无。Task 2.10 已完成，等待你确认后再进入 Task 2.11。
+
+---
+
+## Task 2.11：真实场景多次验证（Token 核对基准）
+
+日期：2026-09-13
+
+修改文件：
+- 无（纯验证任务，未修改任何代码、配置或 schema 文件）
+
+核心逻辑：
+用真实 DeepSeek Key 发 5 条不同类型的请求，记录 TokenHunter 侧解析的 token 数（input/output/total），写入数据库，供人工与 DeepSeek 官方后台核对。流程：杀旧进程 → 启动应用 → 记录 before_count → 依次发 5 条请求 → 查 after_count 和最后 5 条记录 → 从日志提取 Parsed usage → 停止应用。
+
+测试方法：
+1. 端口预检：`lsof -ti :8080 | xargs kill -9` → 杀掉残留进程 ✅
+2. 启动应用：`mvn spring-boot:run > /tmp/app-211.log 2>&1 &`，等待 10 秒后 `curl -s -o /dev/null -w "ping_status=%{http_code}\n" http://127.0.0.1:8080/ping` → ping_status=200 ✅
+3. 数据库初始状态：`SELECT COUNT(*) FROM usage_record;` → 22 条（before_count=22）
+
+4. 5 条 curl 请求：
+
+| # | 请求类型 | 请求体摘要 | curl (in/out/total) | DB id |
+|---|---------|-----------|---------------------|-------|
+| a | 短英文 | "Explain what a database index is in one sentence." | 14/42/56 | 33 |
+| b | 中文 | "用一句话解释什么是 REST API。" | 11/36/47 | 34 |
+| c | 常识问答 | "What is the capital of France?" | 11/8/19 | 35 |
+| d | 编程问题 | "Write a Python function to compute fibonacci." | 12/602/614 | 36 |
+| e | 翻译 | "Translate good morning to Japanese." | 10/14/24 | 37 |
+
+5 条请求全部成功，HTTP 200，无失败 ✅
+
+5. 数据库最终状态：
+   - `SELECT COUNT(*) FROM usage_record;` → 27 条（= 22 + 5，delta=5）✅
+   - 最后 5 条记录：
+
+| id | input_tokens | output_tokens | total_tokens | cache_hit_tokens | cache_miss_tokens | status | http_status | created_at |
+|----|-------------|---------------|-------------|-----------------|-------------------|--------|-------------|------------|
+| 37 | 10 | 14 | 24 | 0 | 10 | 0 | 200 | 2026-09-13 18:22:21 |
+| 36 | 12 | 602 | 614 | 0 | 12 | 0 | 200 | 2026-09-13 18:22:04 |
+| 35 | 11 | 8 | 19 | 0 | 11 | 0 | 200 | 2026-09-13 18:21:34 |
+| 34 | 11 | 36 | 47 | 0 | 11 | 0 | 200 | 2026-09-13 18:21:20 |
+| 33 | 14 | 42 | 56 | 0 | 14 | 0 | 200 | 2026-09-13 18:20:58 |
+
+6. 日志提取（grep "Parsed usage" /tmp/app-211.log）：
+
+```
+2026-09-13T18:20:58.221+08:00  INFO 45200 --- [tokenhunter] [0.1-8080-exec-2] c.t.service.proxy.DeepSeekProxyService   : Parsed usage: input=14, output=42, total=56, cacheHit=0, cacheMiss=14
+2026-09-13T18:21:20.107+08:00  INFO 45200 --- [tokenhunter] [0.1-8080-exec-4] c.t.service.proxy.DeepSeekProxyService   : Parsed usage: input=11, output=36, total=47, cacheHit=0, cacheMiss=11
+2026-09-13T18:21:34.912+08:00  INFO 45200 --- [tokenhunter] [0.1-8080-exec-5] c.t.service.proxy.DeepSeekProxyService   : Parsed usage: input=11, output=8, total=19, cacheHit=0, cacheMiss=11
+2026-09-13T18:22:04.486+08:00  INFO 45200 --- [tokenhunter] [0.1-8080-exec-6] c.t.service.proxy.DeepSeekProxyService   : Parsed usage: input=12, output=602, total=614, cacheHit=0, cacheMiss=12
+2026-09-13T18:22:21.648+08:00  INFO 45200 --- [tokenhunter] [0.1-8080-exec-8] c.t.service.proxy.DeepSeekProxyService   : Parsed usage: input=10, output=14, total=24, cacheHit=0, cacheMiss=10
+```
+
+5 条 Parsed usage 日志与 curl 输出完全一致 ✅
+
+7. 停止应用：`lsof -ti :8080 | xargs kill -9` → 停止成功 ✅
+
+一致性核对（curl vs 数据库）：
+
+| 请求 | curl total | DB total_tokens | 一致? |
+|------|-----------|-----------------|------|
+| a | 56 | 56 | ✅ |
+| b | 47 | 47 | ✅ |
+| c | 19 | 19 | ✅ |
+| d | 614 | 614 | ✅ |
+| e | 24 | 24 | ✅ |
+
+全部 5 条 curl 输出与数据库 total_tokens 一致 ✅
+
+缓存命中情况：5 条请求的 cacheHit 全部为 0，cacheMiss = input_tokens，说明 DeepSeek 未返回缓存命中数据（与 Task 2.8 一致）。
+
+需要理解的知识点：
+- Task 2.11 是 Phase 2 缓冲验证，目标是建立"TokenHunter 侧 token 数"的基准，供人工与 DeepSeek 官方后台核对
+- curl 侧解析的 token 数（直接从响应体 JSON 提取）与数据库存储的 token 数应完全一致，证明解析→组装→存库链路无数据丢失或转换错误
+- DeepSeek 的 token 计算规则：input_tokens = prompt_cache_miss_tokens（当 cacheHit=0 时），total_tokens = input_tokens + output_tokens，当前实现符合此规则
+
+阻塞事项：
+- 无。Task 2.11 机器验证完成，等待你人工打开 DeepSeek 官方后台核对这 5 次的 token 数。
+
+Task 2.11 机器验证完成，等待你人工核对官方后台。
