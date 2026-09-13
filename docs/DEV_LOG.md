@@ -1342,3 +1342,100 @@ List<Map<String, Object>> selectDailyTrend(@Param("days") int days);
 
 阻塞事项：
 - 无。Task 3.3 已完成，等待你确认后再进入 Task 3.4。
+
+---
+
+## Task 3.4：封装 trend 接口（含补零）
+
+日期：2026-09-13
+
+修改文件：
+- `backend/src/main/java/com/tokenhunter/service/DashboardService.java` — 修改，新增 `getDailyTrend(int days)` 方法
+- `backend/src/main/java/com/tokenhunter/controller/DashboardController.java` — 修改，新增 GET /api/dashboard/trend 接口
+
+核心逻辑：
+DashboardService.getDailyTrend(int days) 方法：1) 调用 `usageRecordMapper.selectDailyTrend(days)` 获取 SQL 结果 `List<Map<String, Object>>`；2) 将 SQL 结果转为 `Map<LocalDate, Long>` 查找表，处理 `java.sql.Date`/`LocalDate`/String 三种 day 类型和 `Long`/`Integer`/`BigInteger` 三种 totalTokens 类型；3) 用 `LocalDate.now()` 获取今天，从 `days-1` 天前到今天生成完整日期序列，遍历每一天在查找表中取值（无则补 0）；4) 返回 `List<Map<String, Object>>`，每个元素 `{"day":"2026-09-13","totalTokens":2075}`，day 用 `DateTimeFormatter.ISO_LOCAL_DATE` 格式化为 String。DashboardController 新增 GET /api/dashboard/trend 接口，接收 `@RequestParam("range")` 参数，仅接受 "7d"（默认）和 "30d"，其他值回退到 7d。
+
+关键代码片段（DashboardService.java getDailyTrend 方法）：
+```java
+public List<Map<String, Object>> getDailyTrend(int days) {
+    List<Map<String, Object>> sqlResult = usageRecordMapper.selectDailyTrend(days);
+
+    Map<LocalDate, Long> lookup = new LinkedHashMap<>();
+    for (Map<String, Object> row : sqlResult) {
+        LocalDate day;
+        Object dayObj = row.get("day");
+        if (dayObj instanceof java.sql.Date) {
+            day = ((java.sql.Date) dayObj).toLocalDate();
+        } else if (dayObj instanceof LocalDate) {
+            day = (LocalDate) dayObj;
+        } else {
+            day = LocalDate.parse(row.get("day").toString());
+        }
+        long totalTokens;
+        Object tokensObj = row.get("totalTokens");
+        if (tokensObj instanceof Long) {
+            totalTokens = (Long) tokensObj;
+        } else if (tokensObj instanceof Integer) {
+            totalTokens = ((Integer) tokensObj).longValue();
+        } else if (tokensObj instanceof java.math.BigInteger) {
+            totalTokens = ((java.math.BigInteger) tokensObj).longValue();
+        } else {
+            totalTokens = Long.parseLong(tokensObj.toString());
+        }
+        lookup.put(day, totalTokens);
+    }
+
+    LocalDate today = LocalDate.now();
+    List<Map<String, Object>> result = new ArrayList<>();
+    for (int i = days - 1; i >= 0; i--) {
+        LocalDate date = today.minusDays(i);
+        long tokens = lookup.getOrDefault(date, 0L);
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("day", date.format(DateTimeFormatter.ISO_LOCAL_DATE));
+        entry.put("totalTokens", tokens);
+        result.add(entry);
+    }
+    return result;
+}
+```
+
+关键代码片段（DashboardController.java trend 方法）：
+```java
+/**
+ * GET /api/dashboard/trend?range=7d|30d
+ * range 默认 7d，非 "7d"/"30d" 的值一律回退到 7d。
+ */
+@GetMapping("/trend")
+public List<Map<String, Object>> trend(@RequestParam(value = "range", defaultValue = "7d") String range) {
+    int days = 7;
+    if ("30d".equals(range)) {
+        days = 30;
+    }
+    return dashboardService.getDailyTrend(days);
+}
+```
+
+测试方法：
+1. 编译：`mvn -q -DskipTests compile` → 编译通过无报错 ✅
+2. 启动应用：`mvn spring-boot:run > /tmp/app-34.log 2>&1 &`，等待 8 秒后 `curl -s -o /dev/null -w "ping_status=%{http_code}\n" http://127.0.0.1:8080/ping` → ping_status=200 ✅
+3. 调用 trend 接口：
+   - `curl -i -sS "http://127.0.0.1:8080/api/dashboard/trend?range=7d"` →
+     ```json
+     [{"day":"2026-09-07","totalTokens":0},{"day":"2026-09-08","totalTokens":0},{"day":"2026-09-09","totalTokens":0},{"day":"2026-09-10","totalTokens":0},{"day":"2026-09-11","totalTokens":999},{"day":"2026-09-12","totalTokens":0},{"day":"2026-09-13","totalTokens":2075}]
+     ```
+     HTTP 200 ✅，长度为 7 的数组 ✅，包含 2026-09-11(999)、2026-09-13(2075)，其余补零 ✅
+   - `curl -i -sS "http://127.0.0.1:8080/api/dashboard/trend?range=30d"` → HTTP 200，长度为 30 的数组，首条 2026-08-15，尾条 2026-09-13(2075) ✅
+   - `curl -i -sS "http://127.0.0.1:8080/api/dashboard/trend?range=invalid"` → HTTP 200，按 7d 处理，返回长度为 7 的数组 ✅
+4. MySQL 核对：`mysql -u root tokenhunter -e "SELECT DATE(created_at) AS day, COALESCE(SUM(total_tokens), 0) AS totalTokens FROM usage_record WHERE status = 0 AND created_at >= CURDATE() - INTERVAL 7 DAY AND created_at < CURDATE() + INTERVAL 1 DAY GROUP BY DATE(created_at) ORDER BY day ASC;"` → 2 行（2026-09-11:999, 2026-09-13:2075），与接口返回的非零日期一致 ✅
+5. 停止应用：`lsof -ti :8080 | xargs kill -9` → 停止成功 ✅
+
+需要理解的知识点：
+- Service 层补零的意义：SQL 只返回有数据的日期，前端折线图需要连续日期序列，否则断点会误导展示
+- `java.sql.Date` → `LocalDate` 的转换：`((java.sql.Date) obj).toLocalDate()`，不能用 `new java.util.Date()`
+- `instanceof` 模式匹配处理多种可能的 JDBC 返回类型（MyBatis 的 `DATE()` 函数返回类型取决于驱动版本）
+- `LinkedHashMap` 保持插入顺序，确保返回的 JSON 数组按日期正序排列
+- `DateTimeFormatter.ISO_LOCAL_DATE` 输出 `yyyy-MM-dd` 格式（无时区信息），符合前端期望
+
+阻塞事项：
+- 无。Task 3.4 已完成，等待你确认后再进入 Task 3.5。
