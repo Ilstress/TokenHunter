@@ -1,9 +1,9 @@
 <script setup lang="ts">
+import SummaryCards from '../components/SummaryCards.vue'
 </script>
 
 <template>
   <div style="padding: 20px;">
-    <h2>Dashboard</h2>
-    <p>这里是 Dashboard 内容区，后续会放统计卡片、趋势图、占比图等。</p>
+    <SummaryCards />
   </div>
 </template>
