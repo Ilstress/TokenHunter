@@ -1620,3 +1620,33 @@ public List<Map<String, Object>> getProviderUsage() {
 - 统计接口要排除 status=1 的失败记录
 - 日期分组的时间边界（今天/昨天/前天）
 - 百分比四舍五入后的尾数误差
+
+cat >> docs/DEV_LOG.md << 'EOF'
+
+---
+
+## Phase 3 总结
+完成时间：2026-09-14
+完成范围：Task 3.1 - 3.9
+
+### 关键成果
+- 5 个统计接口全部跑通：
+  - GET /api/dashboard/summary
+  - GET /api/dashboard/trend?range=7d|30d（含后端补零）
+  - GET /api/dashboard/model-usage（含百分比计算）
+  - GET /api/dashboard/provider-usage（含百分比计算）
+- 所有统计 SQL 只算 status=0 的成功记录
+- 时间范围用 range query 避免索引失效
+- 空数据边界通过测试
+
+### 遗留问题
+- 数据库有 27 条混合测试数据，Phase 4 联调时可直接用
+- 百分比四舍五入后合计 100.01%，前端饼图需按比例归一化或忽略尾差
+- 清理策略：Phase 5 后统一清空测试数据
+
+### 需要理解的知识点
+- COALESCE 处理 SUM 为 NULL
+- 后端补零保证日期序列连续
+- Math.round 做百分比四舍五入
+- 空结果集返回 [] 而非 null
+EOF
