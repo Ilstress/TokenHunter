@@ -36,4 +36,11 @@ public interface UsageRecordMapper extends BaseMapper<UsageRecord> {
             "GROUP BY model " +
             "ORDER BY totalTokens DESC")
     List<Map<String, Object>> selectModelUsage();
+
+    @Select("SELECT provider, COALESCE(SUM(total_tokens), 0) AS totalTokens " +
+            "FROM usage_record " +
+            "WHERE status = 0 " +
+            "GROUP BY provider " +
+            "ORDER BY totalTokens DESC")
+    List<Map<String, Object>> selectProviderUsage();
 }

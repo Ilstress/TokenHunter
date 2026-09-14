@@ -1501,3 +1501,71 @@ total=0 时 percentage 返回 0.0，避免除零。
 - 百分比计算用 Math.round 避免浮点误差
 - 除零保护
 - LinkedHashMap 保证字段顺序
+
+---
+
+## Task 3.7：封装 provider-usage 接口
+
+日期：2026-09-13
+
+修改文件：
+- `backend/src/main/java/com/tokenhunter/mapper/UsageRecordMapper.java` — 修改，新增 `selectProviderUsage()` 方法
+- `backend/src/main/java/com/tokenhunter/service/DashboardService.java` — 修改，新增 `getProviderUsage()` 方法
+- `backend/src/main/java/com/tokenhunter/controller/DashboardController.java` — 修改，新增 GET /api/dashboard/provider-usage 接口
+
+核心逻辑：
+逻辑与 Task 3.6（model-usage）完全一致，只是 GROUP BY 从 model 换成 provider。UsageRecordMapper 新增 `selectProviderUsage()`，SQL 按 provider 分组统计全部历史成功记录的 total_tokens 总和。DashboardService 新增 `getProviderUsage()`，遍历结果计算 total，再为每个 provider 计算百分比（`Math.round(tokens * 10000.0 / total) / 100.0`，保留 2 位小数），返回 `[{"provider":"...","totalTokens":N,"percentage":X.XX}]`。DashboardController 新增 GET /api/dashboard/provider-usage 接口，直接返回 Service 结果。
+
+关键代码片段（UsageRecordMapper.java 新增方法）：
+```java
+@Select("SELECT provider, COALESCE(SUM(total_tokens), 0) AS totalTokens " +
+        "FROM usage_record " +
+        "WHERE status = 0 " +
+        "GROUP BY provider " +
+        "ORDER BY totalTokens DESC")
+List<Map<String, Object>> selectProviderUsage();
+```
+
+关键代码片段（DashboardService.java getProviderUsage 方法）：
+```java
+public List<Map<String, Object>> getProviderUsage() {
+    List<Map<String, Object>> sqlResult = usageRecordMapper.selectProviderUsage();
+    long total = 0;
+    List<Map<String, Object>> rows = new ArrayList<>();
+    for (Map<String, Object> row : sqlResult) {
+        // ... 类型处理（Long/Integer/BigInteger/String）...
+        total += tokens;
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("provider", row.get("provider"));
+        entry.put("totalTokens", tokens);
+        entry.put("percentage", 0.0);
+        rows.add(entry);
+    }
+    for (Map<String, Object> row : rows) {
+        long tokens = (Long) row.get("totalTokens");
+        double percentage = (total == 0) ? 0.0 : Math.round(tokens * 10000.0 / total) / 100.0;
+        row.put("percentage", percentage);
+    }
+    return rows;
+}
+```
+
+测试方法：
+1. 运行 `mvn -q -DskipTests compile`，编译通过无报错 ✅
+2. 启动应用：`mvn spring-boot:run > /tmp/app-37.log 2>&1 &`，等待 8 秒后 `curl -s -o /dev/null -w "ping_status=%{http_code}\n" http://127.0.0.1:8080/ping` → ping_status=200 ✅
+3. 调用接口：`curl -s http://127.0.0.1:8080/api/dashboard/provider-usage | python3 -m json.tool` →
+   ```json
+   [{"provider":"deepseek","totalTokens":3074,"percentage":100.0}]
+   ```
+   HTTP 200 ✅，provider=deepseek, totalTokens=3074, percentage=100.0 ✅
+4. MySQL 核对：`mysql -u root tokenhunter -e "SELECT provider, COALESCE(SUM(total_tokens), 0) AS totalTokens FROM usage_record WHERE status = 0 GROUP BY provider ORDER BY totalTokens DESC;"` → deepseek, 3074 ✅，与接口输出一致
+5. 停止应用：`lsof -ti :8080 | xargs kill -9` → 停止成功 ✅
+
+需要理解的知识点：
+- provider 占比与 model 占比的唯一区别：GROUP BY 列不同（provider vs model）
+- 当前数据库只有 deepseek 一个 provider，percentage=100.0 符合预期
+- 多 provider 场景下，percentage 之和应为 100.0（四舍五入可能略有偏差）
+- LinkedHashMap 保证 provider/totalTokens/percentage 的字段顺序
+
+阻塞事项：
+- 无。Task 3.7 已完成，等待你确认后再进入 Task 3.8。

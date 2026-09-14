@@ -45,4 +45,13 @@ public class DashboardController {
     public List<Map<String, Object>> modelUsage() {
         return dashboardService.getModelUsage();
     }
+
+    /**
+     * GET /api/dashboard/provider-usage
+     * Return provider usage with percentage of total tokens.
+     */
+    @GetMapping("/provider-usage")
+    public List<Map<String, Object>> providerUsage() {
+        return dashboardService.getProviderUsage();
+    }
 }

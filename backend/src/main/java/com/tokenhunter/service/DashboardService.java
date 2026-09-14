@@ -108,4 +108,42 @@ public class DashboardService {
 
         return rows;
     }
+
+    /**
+     * Return provider usage with percentage of total tokens.
+     */
+    public List<Map<String, Object>> getProviderUsage() {
+        List<Map<String, Object>> sqlResult = usageRecordMapper.selectProviderUsage();
+
+        long total = 0;
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Map<String, Object> row : sqlResult) {
+            Object tokensObj = row.get("totalTokens");
+            long tokens;
+            if (tokensObj instanceof Long) {
+                tokens = (Long) tokensObj;
+            } else if (tokensObj instanceof Integer) {
+                tokens = ((Integer) tokensObj).longValue();
+            } else if (tokensObj instanceof java.math.BigInteger) {
+                tokens = ((java.math.BigInteger) tokensObj).longValue();
+            } else {
+                tokens = Long.parseLong(tokensObj.toString());
+            }
+            total += tokens;
+
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("provider", row.get("provider"));
+            entry.put("totalTokens", tokens);
+            entry.put("percentage", 0.0);
+            rows.add(entry);
+        }
+
+        for (Map<String, Object> row : rows) {
+            long tokens = (Long) row.get("totalTokens");
+            double percentage = (total == 0) ? 0.0 : Math.round(tokens * 10000.0 / total) / 100.0;
+            row.put("percentage", percentage);
+        }
+
+        return rows;
+    }
 }
