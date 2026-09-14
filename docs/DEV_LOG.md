@@ -1569,3 +1569,54 @@ public List<Map<String, Object>> getProviderUsage() {
 
 阻塞事项：
 - 无。Task 3.7 已完成，等待你确认后再进入 Task 3.8。
+
+## Task 3.8：处理空数据边界情况
+日期：2026-09-13
+
+修改文件：无（纯验证任务）
+
+核心逻辑：
+清空 usage_record 表后，验证 4 个统计接口是否返回合理空结构，而不是 500 错误。
+
+测试方法：
+1. mysqldump 备份数据
+2. DELETE FROM usage_record
+3. curl 4 个接口
+4. 恢复数据
+
+测试结果：
+- summary：HTTP 200，{"totalTokens":0,"requestCount":0,"modelCount":0}
+- trend 7d：HTTP 200，7 条记录，totalTokens 全为 0
+- model-usage：HTTP 200，[]
+- provider-usage：HTTP 200，[]
+- 数据恢复后条数一致
+
+需要理解的知识点：
+- 聚合函数在无数据时的行为（SUM 返回 NULL，需要 COALESCE）
+- 空结果集返回空数组（MyBatis 返回 []，不是 null）
+- 边界测试的重要性
+
+---
+
+## Task 3.9（缓冲）：全面核对
+日期：2026-09-14
+
+修改文件：无（纯验证任务）
+
+核心逻辑：
+清空表后插入 9 条可控测试数据（覆盖 3 个时间层：今天/昨天/前天/5天前/10天前，2 个 Provider，4 个模型，含 1 条失败记录），逐个调用 5 个统计接口，手工核对数字。
+
+测试方法：
+1. mysqldump 备份
+2. DELETE FROM usage_record
+3. INSERT 9 条可控数据
+4. curl 5 个接口
+5. 手工对照预期值
+6. 恢复数据
+
+测试结果：（按实际填写）
+
+需要理解的知识点：
+- 统计接口要排除 status=1 的失败记录
+- 日期分组的时间边界（今天/昨天/前天）
+- 百分比四舍五入后的尾数误差
