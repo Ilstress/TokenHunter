@@ -3,6 +3,7 @@ import SummaryCards from '../components/SummaryCards.vue'
 import TokenTrendChart from '../components/TokenTrendChart.vue'
 import ModelUsagePie from '../components/ModelUsagePie.vue'
 import ProviderUsagePie from '../components/ProviderUsagePie.vue'
+import RecentRequestsTable from '../components/RecentRequestsTable.vue'
 </script>
 
 <template>
@@ -11,5 +12,6 @@ import ProviderUsagePie from '../components/ProviderUsagePie.vue'
     <TokenTrendChart />
     <ModelUsagePie />
     <ProviderUsagePie />
+    <RecentRequestsTable />
   </div>
 </template>
