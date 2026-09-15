@@ -3,6 +3,9 @@ import { ref, onMounted } from 'vue'
 import { fetchUsageRecords, type UsageRecord } from '../api/usageRecord'
 
 const records = ref<UsageRecord[]>([])
+const loading = ref(false)
+const hasError = ref(false)
+const hasData = ref(true)
 
 function formatDate(iso: string): string {
   if (!iso) return '-'
@@ -13,13 +16,18 @@ function formatDate(iso: string): string {
 }
 
 onMounted(async () => {
+  loading.value = true
+  hasError.value = false
   try {
     const data = await fetchUsageRecords()
-    records.value = data
-      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
-      .slice(0, 20)
+    const sorted = data.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).slice(0, 20)
+    records.value = sorted
+    hasData.value = sorted.length > 0
   } catch (e) {
     console.error('Failed to fetch usage records', e)
+    hasError.value = true
+  } finally {
+    loading.value = false
   }
 })
 </script>
@@ -27,7 +35,10 @@ onMounted(async () => {
 <template>
   <div class="recent-requests">
     <h3 class="table-title">最近请求</h3>
-    <el-table :data="records" stripe style="width: 100%;">
+    <el-skeleton v-if="loading" :rows="5" animated />
+    <el-alert v-else-if="hasError" title="加载失败，请检查后端服务" type="error" :closable="false" show-icon />
+    <el-empty v-else-if="!hasData" description="暂无请求记录" />
+    <el-table v-else :data="records" stripe style="width: 100%;">
       <el-table-column prop="createdAt" label="时间" width="180">
         <template #default="{ row }">
           {{ formatDate(row.createdAt) }}
