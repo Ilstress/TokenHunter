@@ -12,3 +12,6 @@ tokenhunter:
     deepseek:
       base-url: https://api.deepseek.com
       api-key: ${DEEPSEEK_API_KEY:}
+    lmstudio:
+      base-url: ${LMSTUDIO_BASE_URL:http://localhost:1234}
+      api-key: not-needed

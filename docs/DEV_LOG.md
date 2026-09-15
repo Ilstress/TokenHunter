@@ -1649,7 +1649,13 @@ cat >> docs/DEV_LOG.md << 'EOF'
 - 后端补零保证日期序列连续
 - Math.round 做百分比四舍五入
 - 空结果集返回 [] 而非 null
-EOF
+EOF# 备份现有数据（以防万一）
+mysqldump --set-gtid-purged=OFF -u root tokenhunter usage_record > /tmp/usage_record_v01_backup.sql
+
+# 清空
+mysql -u root tokenhunter -e "DELETE FROM usage_record;"
+mysql -u root tokenhunter -e "SELECT COUNT(*) FROM usage_record;"
+# 预期：0
 ---
 
 ## Phase 4 总结
