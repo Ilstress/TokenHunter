@@ -1685,3 +1685,29 @@ mysql -u root tokenhunter -e "SELECT COUNT(*) FROM usage_record;"
 - axios 实例封装和 TypeScript 接口定义
 - Element Plus 组件按需使用
 - 三态处理（loading / error / empty）
+
+---
+
+## Phase 5 总结
+完成时间：2026-09-15
+完成范围：Task 5.1 - 5.4
+
+### 关键成果
+- LM Studio 配置加入 application.yml / application-local.yml / application-local.example.yml
+- LmStudioProxyService 实现：不传 Authorization，usage 缺失时 token 存 0
+- ProxyController 新增 /proxy/lmstudio/** 路由，不破坏 /proxy/deepseek/**
+- 用 mock server 验证 usage 缺失路径（id=56，token=0，status=0）
+- 用真实模型 qwen/qwen3.6-35b-a3b 验证完整链路（id=57-59，token 与上游一致）
+- Dashboard 正常展示 LM Studio 数据（3 个模型、2 个 Provider）
+
+### 遗留问题
+- 本机内存不足以同时加载多个大 LM Studio 模型
+- LM Studio 的 completion_tokens_details.reasoning_tokens 未采集，v0.1 不需要
+- 部分 LM Studio 模型加载失败会返回 400，已正确记录为 status=1
+- 数据库有测试数据（含 mock-model 等），v0.1 正式发布前清空
+
+### 需要理解的知识点
+- 环境变量覆盖 Spring 配置（LMSTUDIO_BASE_URL）
+- mock server 在集成测试中的作用
+- 双 Provider 的路由隔离
+- 无 usage 上游的兼容处理
