@@ -1650,3 +1650,32 @@ cat >> docs/DEV_LOG.md << 'EOF'
 - Math.round 做百分比四舍五入
 - 空结果集返回 [] 而非 null
 EOF
+---
+
+## Phase 4 总结
+完成时间：2026-09-15
+完成范围：Task 4.1 - 4.14
+
+### 关键成果
+- Vue 3 + Vite + TypeScript + Element Plus + ECharts 前端跑通
+- 5 个业务组件全部接入真实后端数据：
+  - SummaryCards：今日 Token / 请求数 / 模型数
+  - TokenTrendChart：7d / 30d 趋势切换
+  - ModelUsagePie：模型占比饼图
+  - ProviderUsagePie：Provider 占比饼图
+  - RecentRequestsTable：最近 20 条请求表格
+- 全部组件有 loading / 空数据 / 错误状态处理
+- CORS 配置正确，前后端联调通过
+- App.vue 用 sticky header，DashboardView 用 max-width 1280px 居中
+
+### 遗留问题
+- ECharts 打包体积 1MB，v0.1 不优化
+- 响应式仅基础支持，小屏布局未专门调优
+- 数据库有测试数据，v0.1 收尾时清理
+- HelloWorld.vue 已删除
+
+### 需要理解的知识点
+- ECharts 与 Vue 生命周期结合（onMounted + init + v-show 保 DOM）
+- axios 实例封装和 TypeScript 接口定义
+- Element Plus 组件按需使用
+- 三态处理（loading / error / empty）
