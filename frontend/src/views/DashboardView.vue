@@ -2,6 +2,7 @@
 import SummaryCards from '../components/SummaryCards.vue'
 import TokenTrendChart from '../components/TokenTrendChart.vue'
 import ModelUsagePie from '../components/ModelUsagePie.vue'
+import ProviderUsagePie from '../components/ProviderUsagePie.vue'
 </script>
 
 <template>
@@ -9,5 +10,6 @@ import ModelUsagePie from '../components/ModelUsagePie.vue'
     <SummaryCards />
     <TokenTrendChart />
     <ModelUsagePie />
+    <ProviderUsagePie />
   </div>
 </template>
