@@ -7,7 +7,7 @@ import RecentRequestsTable from '../components/RecentRequestsTable.vue'
 </script>
 
 <template>
-  <div style="padding: 20px;">
+  <div class="dashboard">
     <SummaryCards />
     <TokenTrendChart />
     <ModelUsagePie />
@@ -15,3 +15,11 @@ import RecentRequestsTable from '../components/RecentRequestsTable.vue'
     <RecentRequestsTable />
   </div>
 </template>
+
+<style scoped>
+.dashboard {
+  padding: 24px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+</style>
