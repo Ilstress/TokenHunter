@@ -5,12 +5,18 @@ import { fetchTrend, type TrendPoint } from '../api/dashboard'
 
 const chartRef = ref<HTMLDivElement | null>(null)
 const range = ref<'7d' | '30d'>('7d')
+const loading = ref(false)
+const hasError = ref(false)
+const hasData = ref(true)
 let chart: echarts.ECharts | null = null
 
 async function loadTrend() {
   if (!chart) return
+  loading.value = true
+  hasError.value = false
   try {
     const data: TrendPoint[] = await fetchTrend(range.value)
+    hasData.value = data.some(d => d.totalTokens > 0)
     chart.setOption({
       title: { text: `Token 趋势（${range.value}）` },
       tooltip: { trigger: 'axis' },
@@ -28,6 +34,9 @@ async function loadTrend() {
     })
   } catch (e) {
     console.error('Failed to fetch trend', e)
+    hasError.value = true
+  } finally {
+    loading.value = false
   }
 }
 
@@ -51,7 +60,10 @@ watch(range, () => {
         <el-radio-button value="30d">近 30 天</el-radio-button>
       </el-radio-group>
     </div>
-    <div ref="chartRef" style="width: 100%; height: 360px;"></div>
+    <el-skeleton v-if="loading" :rows="5" animated />
+    <el-alert v-else-if="hasError" title="加载失败，请检查后端服务" type="error" :closable="false" show-icon />
+    <el-empty v-else-if="!hasData" description="暂无趋势数据" />
+    <div v-show="!loading && !hasError && hasData" ref="chartRef" style="width: 100%; height: 360px;"></div>
   </div>
 </template>
 

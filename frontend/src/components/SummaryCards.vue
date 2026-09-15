@@ -5,21 +5,33 @@ import { fetchSummary } from '../api/dashboard'
 const totalTokens = ref(0)
 const requestCount = ref(0)
 const modelCount = ref(0)
+const loading = ref(false)
+const hasError = ref(false)
+const hasData = ref(true)
 
 onMounted(async () => {
+  loading.value = true
+  hasError.value = false
   try {
     const data = await fetchSummary()
     totalTokens.value = data.totalTokens
     requestCount.value = data.requestCount
     modelCount.value = data.modelCount
+    hasData.value = !(data.totalTokens === 0 && data.requestCount === 0 && data.modelCount === 0)
   } catch (e) {
     console.error('Failed to fetch summary', e)
+    hasError.value = true
+  } finally {
+    loading.value = false
   }
 })
 </script>
 
 <template>
-  <div class="summary-cards">
+  <el-skeleton v-if="loading" :rows="3" animated />
+  <el-alert v-else-if="hasError" title="加载失败，请检查后端服务" type="error" :closable="false" show-icon />
+  <el-empty v-else-if="!hasData" description="今日暂无数据" />
+  <div v-else class="summary-cards">
     <div class="card">
       <div class="card-label">今日 Token</div>
       <div class="card-value">{{ totalTokens }}</div>
