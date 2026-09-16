@@ -94,6 +94,7 @@
 - 涉及文件：`controller/ProxyController.java`、`service/proxy/DeepSeekProxyService.java`
 - 验收标准：用 curl 发一个真实的非流式请求（`"stream": false`），能拿到和直接请求 DeepSeek 一样的返回内容。
 - 知识点：`RestTemplate`/`WebClient` 的基本用法、HTTP 请求头如何透传（尤其是 Authorization）
+- 知识点补充：TokenHunter 用自己的 Provider Key 覆盖客户端 Authorization，客户端不需要传 Key；LM Studio 不传 Authorization。
 
 ### Task 2.4 验证转发链路（无统计）
 - 多测几种不同的请求内容，确认转发本身稳定可靠，没有丢数据或格式错乱的问题。

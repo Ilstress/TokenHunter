@@ -52,6 +52,8 @@ Proxy 部分直接为 DeepSeek 和 LM Studio 各写一个转发方法，逻辑�
 
 v0.1 只支持**非流式**请求的转发与统计（客户端请求体中 `stream: false`）。流式（SSE）请求的转发与 usage 解析留待后续版本。
 
+Proxy 的身份策略：TokenHunter 使用 `application.yml` 中配置的 Provider API Key 覆盖客户端的 `Authorization` 头，客户端无需自带 Key，只需把 base_url 指向 TokenHunter 即可。LM Studio 不需要 Key，直接转发。
+
 ---
 
 ## 5. 目录结构
@@ -63,8 +65,8 @@ tokenhunter-backend/
 ├── src/main/java/com/tokenhunter/
 │   ├── TokenHunterApplication.java
 │   ├── config/
-│   │   ├── MybatisPlusConfig.java
 │   │   ├── CorsConfig.java
+│   │   ├── RestTemplateConfig.java
 │   │   └── ProviderProperties.java   # 从 application.yml 读取 Provider 配置
 │   ├── controller/
 │   │   ├── DashboardController.java
@@ -105,10 +107,7 @@ tokenhunter-frontend/
 │   ├── api/
 │   │   ├── dashboard.ts
 │   │   └── usageRecord.ts
-│   ├── types/
-│   │   └── index.ts
-│   ├── stores/
-│   │   └── dashboard.ts              # Pinia
+│   ├── assets/                     # favicon 等静态资源
 │   ├── router/
 │   │   └── index.ts
 │   └── App.vue
@@ -176,6 +175,7 @@ tokenhunter:
 - **v0.1 范围**：采集 `input_tokens`、`cache_hit_tokens`、`cache_miss_tokens`、`output_tokens`、`total_tokens`，其中 `input_tokens = cache_hit_tokens + cache_miss_tokens`（有缓存时）；无缓存时后两者为 0。
 - **数据来源**：v0.1 只统计经过 TokenHunter Proxy 转发的请求，不扫描本地 CLI 会话文件，不导入任何历史数据。
 - **单位与时区**：所有 Token 数均为整数；时间统一按 `Asia/Shanghai` 存储与展示。
+- **百分比尾差**：模型占比和 Provider 占比的百分比四舍五入保留 2 位小数后，多个扇区之和可能为 100.00% ± 0.01%。前端饼图按实际数值渲染，不强制归一化，v0.1 接受这个尾差。
 
 ---
 
@@ -183,6 +183,7 @@ tokenhunter:
 
 | Method | Path | 说明 |
 |---|---|---|
+| GET | `/api/ping` | 健康检查 |
 | GET | `/api/dashboard/summary` | 今日 Token / 请求数 / 模型数 |
 | GET | `/api/dashboard/trend?range=7d\|30d` | Token 使用趋势 |
 | GET | `/api/dashboard/model-usage` | 按模型聚合占比 |
