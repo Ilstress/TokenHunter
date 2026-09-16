@@ -1711,3 +1711,81 @@ mysql -u root tokenhunter -e "SELECT COUNT(*) FROM usage_record;"
 - mock server 在集成测试中的作用
 - 双 Provider 的路由隔离
 - 无 usage 上游的兼容处理
+
+---
+
+## v0.1.0 完成宣告
+日期：2026-09-16
+
+TokenHunter v0.1 正式完成。
+
+### 完成范围
+- Phase 1：后端基础（Task 1.1 - 1.10）
+- Phase 2：DeepSeek Proxy（Task 2.1 - 2.11）
+- Phase 3：Dashboard 统计接口（Task 3.1 - 3.9）
+- Phase 4：前端 Dashboard（Task 4.1 - 4.14）
+- Phase 5：LM Studio Proxy（Task 5.1 - 5.4）
+- 项目审查与清理（Task R.1 - R.7）
+
+### 核心能力
+- 双 Provider 代理转发：DeepSeek + LM Studio，非流式
+- 完整 usage 采集：输入 / 输出 / 缓存命中 / 缓存未命中
+- 失败记录可排查：http_status、error_message、endpoint
+- 统计接口：今日概况、7/30 天趋势、模型占比、Provider 占比
+- Dashboard：5 个可视化组件，三态处理（loading / error / empty）
+- 工程规范：git tag（phase-2 ~ phase-5）、CLAUDE.md、DEV_LOG、README、API.md
+
+### 技术栈
+- 后端：Spring Boot 3.4.4 + Java 21 + MyBatis-Plus 3.5.9 + MySQL 8
+- 前端：Vue 3 + Vite 8 + TypeScript + Element Plus 2.14 + ECharts 6
+
+### 已知限制
+- 只支持非流式请求（stream: false）
+- 无数据导出、清空、删除功能
+- 无用户系统、鉴权
+- ECharts 打包体积 1MB+（v0.1 不优化）
+
+### 后续规划
+- v0.2：流式请求支持（SSE 透传 + usage 旁路解析）
+- v0.3：数据导出、清空功能
+- v0.4：Provider 配置迁移到数据库
+- v0.5+：更多 Provider，Provider 抽象层，模型 ID 归一化
+
+---
+
+## v0.1.0 完成宣告
+日期：2026-09-16
+
+TokenHunter v0.1 正式完成。
+
+### 完成范围
+- Phase 1：后端基础（Task 1.1 - 1.10）
+- Phase 2：DeepSeek Proxy（Task 2.1 - 2.11）
+- Phase 3：Dashboard 统计接口（Task 3.1 - 3.9）
+- Phase 4：前端 Dashboard（Task 4.1 - 4.14）
+- Phase 5：LM Studio Proxy（Task 5.1 - 5.4）
+- 项目审查与清理（Task R.1 - R.7）
+
+### 核心能力
+- 双 Provider 代理转发：DeepSeek + LM Studio，非流式
+- 完整 usage 采集：输入 / 输出 / 缓存命中 / 缓存未命中
+- 失败记录可排查：http_status、error_message、endpoint
+- 统计接口：今日概况、7/30 天趋势、模型占比、Provider 占比
+- Dashboard：5 个可视化组件，三态处理（loading / error / empty）
+- 工程规范：git tag（phase-2 ~ phase-5）、CLAUDE.md、DEV_LOG、README、API.md
+
+### 技术栈
+- 后端：Spring Boot 3.4.4 + Java 21 + MyBatis-Plus 3.5.9 + MySQL 8
+- 前端：Vue 3 + Vite 8 + TypeScript + Element Plus 2.14 + ECharts 6
+
+### 已知限制
+- 只支持非流式请求（stream: false）
+- 无数据导出、清空、删除功能
+- 无用户系统、鉴权
+- ECharts 打包体积 1MB+（v0.1 不优化）
+
+### 后续规划
+- v0.2：流式请求支持（SSE 透传 + usage 旁路解析）
+- v0.3：数据导出、清空功能
+- v0.4：Provider 配置迁移到数据库
+- v0.5+：更多 Provider，Provider 抽象层，模型 ID 归一化
